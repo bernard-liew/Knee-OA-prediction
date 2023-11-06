@@ -1,0 +1,90 @@
+---
+title: "1-preparation"
+output: html_document
+date: "`r Sys.Date()`"
+editor_options: 
+  chunk_output_type: console
+---
+# Load package
+```{r}
+library (tidyverse)
+library (FDboost)
+library (mltest)
+```
+# Import files
+
+```{r}
+df <- readRDS ("merged_dat.RDS")
+
+df$kl_severity <- factor (df$kl_severity)
+df$class <- factor(levels(df$kl_severity)[-nlevels(df$kl_severity)])
+```
+#
+
+```{r}
+fun_names <- grep("_Z|X|Y", names (df), value = TRUE)
+fun_names <- fun_names[!grepl("Ankle_Z|Ankle_Y|Elbows_Y|Elbows_Z", 
+                             fun_names)]
+lhs <- "kl_severity ~ "
+
+rhs1 <- paste0("bsignal(", fun_names, 
+                   ", s = cycle, differences = 0, df = 1)")
+rhs2 <- paste0(rhs1, "%O% bols(class, df = 2, contrasts.arg = 'contr.dummy')")
+rhs <- paste(rhs2, collapse = " + ")
+
+form <- as.formula( paste0(lhs, rhs) )
+
+
+df[fun_names] <- df[fun_names] %>%
+  map (scale, center = TRUE, scale = FALSE)
+
+mod <- FDboost(
+  formula = form, 
+  data = df, 
+  timeformula = NULL, 
+  family = Multinomial(), 
+  # define the boosting specific parameters
+  # mstop:  set to a large number, such as 1000.
+  #         We will choose the optimal stoppting
+  #         iteration in the next step via cross-validation
+  # nu:     learning rate: 0.1 is a good default, which 
+  #         works for most cases
+  control = boost_control(mstop = 2000, 
+                          nu = 0.1)
+)
+
+
+# through all mstop iterations, whether we should have
+# stopped early as the algorithm might already have
+# overfitted
+set.seed(1)
+folds = cv(rep(1, length(unique(mod$id))), 
+           type = "kfold", B = 10)
+cvr = cvrisk(mod, folds = folds)
+# plot the cross-validation search and 
+# the best stopping iteration
+plot(cvr)
+# redefine the model and set it to the best stopping
+# iteration (which is done inplace): 
+(best_iteration = mstop(cvr))
+mod[best_iteration]
+# plot the important predictors
+plot(mboost::varimp(mod))
+# plot the estimated effects of the model
+plot(mod)
+
+
+pd <- predict(mod, type = "response")
+apply(pd,1,which.max)
+```
+
+```{r}
+p <- factor (apply(pd,1,which.max), ordered = T)
+o <- factor (as.numeric (df$kl_severity), ordered = T)
+
+ml_test(p, o, output.as.table = FALSE)
+pROC::multiclass.roc(o, p)
+```
+
+
+# Tidy

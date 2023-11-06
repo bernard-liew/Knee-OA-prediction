@@ -1,0 +1,145 @@
+---
+title: "1-preparation"
+output: html_document
+date: "`r Sys.Date()`"
+editor_options: 
+  chunk_output_type: console
+---
+# Load package
+```{r}
+library (tidyverse)
+library (farff)
+library (RWeka)
+```
+# Import files
+
+```{r}
+raw_path <- "../../../../../bl19622-SRES/research2/mocap_database/data_bertaux/HOA-M0-M6_HEA DataSet/Angles"
+
+List.Files <- list.files(raw_path)
+List.Files2 <- List.Files[!grepl("HOA_M6|time|Abs",List.Files)]
+
+safe_readARFF <- safely(readARFF)
+
+df_list <- List.Files2 %>%
+  map(~safe_readARFF (file.path (raw_path, .)))
+
+names (df_list) <- str_remove(List.Files2, ".arff")
+
+error_list <- df_list %>%
+  map ("error") %>% unlist 
+
+raw_path2 <- "../../../../../bl19622-SRES/research2/mocap_database/data_bertaux"
+
+demo <- rio::import(file.path (raw_path2, "Metadata #R1.xlsx"))
+demo <- janitor::clean_names(demo)[,c(1:12)] %>%
+  mutate (id_inclusion = as.numeric (id_inclusion)) %>%
+  unite ("id", cohorte:id_inclusion, sep = "") 
+
+names (demo) <- c("id",
+                  "time",
+                  "m6",
+                  "disturbance",
+                  "oa_side",
+                  "sex",
+                  "age",
+                  "mass",
+                  "ht",
+                  "bmi",
+                  "kl_severity")
+
+demo <- demo %>%
+  filter (time != "M6") %>%
+  select (-c(time, m6))
+```
+
+```{r}
+x <- df_list[[1]][[1]] %>%
+  select (patients_class, OAside_class, trial_class, cycle_class, everything ())
+```
+
+# Tidy
+
+```{r}
+
+# Kinematic data
+
+df <- df_list %>%
+  map ("result") %>%
+  bind_rows(.id = "id") %>%
+  select (patients_class, OAside_class, trial_class, cycle_class, everything ()) %>%
+  separate (id, into = c("class", "time", "var", "axis"), sep = "_") %>%
+  mutate (var = str_remove_all(var, "Angle|Angles|Progress"),
+          side = str_extract(var, "^.{1}"),
+          var = str_remove(var, "^.{1}")) %>%
+  rename (id = patients_class) %>%
+  mutate (id = as.character(id)) %>%
+  select (id, OAside_class, trial_class, cycle_class, class, time, 
+          var, axis, side, everything ()) 
+
+df <- df %>%
+  group_by(id, class, var, axis, side) %>%
+  summarise_at(vars (t0:t100), mean, na.rm = TRUE)
+
+map_dbl (df, ~is.na(.x) %>% sum ())
+
+match (unique (df$id), unique(demo$id))
+
+df2 <- demo %>%
+  inner_join(df, by = c("id")) %>%
+  filter (kl_severity != "ND")
+
+df2 <- df2 %>%
+  unite ("varz", c("side", "var", "axis"), sep = "_")
+
+by_grp <- df2 %>%
+  group_by(varz)
+
+grp_split <- group_split (by_grp)
+names(grp_split) <- group_keys(by_grp)[[1]]
+
+
+id <- grp_split[[1]]$id
+oa_side <- grp_split[[1]]$oa_side
+sex <- grp_split[[1]]$sex
+age <- grp_split[[1]]$age
+mass <- grp_split[[1]]$mass
+ht <- grp_split[[1]]$ht
+bmi <- grp_split[[1]]$bmi
+kl_severity <- grp_split[[1]]$kl_severity
+group <- grp_split[[1]]$class
+
+rm_cols <- function (x) {
+  
+  x %>% select (starts_with("t")) %>% as.matrix ()
+  
+}
+
+grp_split2 <- grp_split %>%
+  map (rm_cols)
+
+
+df_list <- list (
+  id = id,
+  oa_side = oa_side,
+  sex = sex,
+  age = age,
+  mass = mass,
+  ht = ht,
+  bmi = bmi,
+  kl_severity = kl_severity,
+  group = group,
+  cycle = 1:101
+  
+)
+df_list$kl_severity <- ifelse (df_list$kl_severity == "NA", "0", df_list$kl_severity)
+
+df_list <- c(df_list, grp_split2)
+names(df_list)
+```
+
+```{r}
+saveRDS(df_list, "merged_dat.RDS")
+```
+
+

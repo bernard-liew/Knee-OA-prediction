@@ -1,0 +1,545 @@
+---
+title: "1-preparation"
+output: html_document
+date: "`r Sys.Date()`"
+editor_options: 
+  chunk_output_type: console
+---
+# Load package
+```{r}
+library (tidyverse)
+library (cowplot)
+library (common)
+```
+# Import files
+
+```{r}
+df <- readRDS ("merged_dat.RDS")
+
+df$kl_severity <- factor (df$kl_severity)
+```
+
+# Scalar descriptives
+
+```{r}
+df_plot <- df [2:9] %>%
+  bind_cols()
+
+## Number of healthy vs OA participants
+
+numb_df <- df_plot %>%
+  group_by(group) %>%
+  summarise (n = n()) %>%
+  mutate (group = factor (group, levels = c("HEA", "HOA"), labels = c("Healthy", "OA")))
+
+f1 <- numb_df %>%
+  ggplot () + 
+  geom_bar(aes(x = group, y = n), stat = "identity", color = "black", fill = "white") +
+  labs(x = "Group",
+       y = "No. participants") +
+  theme_cowplot()
+
+## Laterlity of OA
+
+oa_df <- df_plot %>%
+  filter (group == "HOA") %>%
+  group_by(oa_side) %>%
+  summarise (n = n()) %>%
+  mutate (side = factor (oa_side, levels = c("R", "L"), labels = c("Right", "Left")))
+
+f2 <- oa_df %>%
+  ggplot () + 
+  geom_bar(aes(x = side, y = n), stat = "identity", color = "black", fill = "white") +
+  labs(x = "OA side",
+       y = "No. participants") +
+  theme_cowplot()
+
+## Sex
+
+sex_df <- df_plot %>%
+  group_by(group, sex) %>%
+  summarise (n = n()) %>%
+  mutate (group = factor (group, levels = c("HEA", "HOA"), labels = c("Healthy", "OA")))
+
+f3 <- sex_df %>%
+  ggplot () + 
+  geom_bar(aes(x = group, y = n, fill = sex), stat = "identity", color = "black", position = "dodge") +
+  labs(x = "Group",
+       y = "No. participants",
+       fill = "Sex") +
+  theme_cowplot()
+
+# Age
+
+age_df <- df_plot %>%
+  group_by(group) %>%
+  summarise (Mean = mean (age),
+             Sd = sd(age)) %>%
+  mutate (group = factor (group, levels = c("HEA", "HOA"), labels = c("Healthy", "OA")))
+
+f4 <- age_df %>%
+  ggplot () + 
+  geom_point(aes(x = group, y = Mean), stat = "identity", color = "black", fill = "white", size = 2) +
+  geom_errorbar(aes(x = group, ymin = Mean - Sd, ymax = Mean + Sd), width = 0) +
+  labs(x = "Group",
+       y = "Age (years)") +
+  theme_cowplot()
+
+# BMI
+
+bmi_df <- df_plot %>%
+  group_by(group) %>%
+  summarise (Mean = mean (bmi),
+             Sd = sd(bmi)) %>%
+  mutate (group = factor (group, levels = c("HEA", "HOA"), labels = c("Healthy", "OA")))
+
+f5 <- bmi_df %>%
+  ggplot () + 
+  geom_point(aes(x = group, y = Mean),  color = "black", size = 2) +
+  geom_errorbar(aes(x = group, ymin = Mean - Sd, ymax = Mean + Sd), width = 0) +
+  labs(x = "Group",
+       y = paste0("Body mass index (kg/m", supsc("2"), ")")) +
+  theme_cowplot()
+
+plot_grid(f1, f2, f3, f4, f5,
+          ncol = 3, labels = "auto")
+
+
+```
+
+
+# Functional descriptives
+
+
+## Foot progression
+
+```{r}
+df_plot <- df[grepl("group|Foot", names (df))]
+
+df_plot_2 <- df_plot[-1] %>%
+  map (as.data.frame) %>%
+  bind_rows(.id = "varz") %>%
+  mutate (group = rep (df_plot$group, nrow (.)/length(df_plot$group))) %>%
+  select (group, everything()) %>%
+  separate (varz, c("side", "joint", "axis"), "_") %>%
+  pivot_longer(cols = starts_with("t"),
+               names_to = "cycle",
+               values_to = "angle")%>%
+  mutate (cycle = str_remove(cycle, "t") %>% as.numeric)%>%
+  mutate (group = factor (group, levels = c("HEA", "HOA"), labels = c("Healthy", "OA")),
+          side = factor (side, levels = c("R", "L"), labels = c("Right", "Left"))) %>%
+  group_by(group, side, axis, cycle) %>%
+  summarise (Mean = mean (angle),
+             Sd = sd (angle))
+
+f0 <- ggplot (df_plot_2) +
+  geom_line(aes(x = cycle, y = Mean, color = group)) +
+  geom_ribbon(aes (x = cycle, ymin = Mean -Sd, ymax = Mean + Sd, fill = group), alpha = 0.2) + 
+  facet_wrap(side ~ axis, scales = "free") +
+  scale_color_manual(values = c("blue", "red")) +
+  scale_fill_manual (values = c("blue", "red")) +
+  labs (y = "Foot angle (°)",
+        x = "Stride (%)",
+        color = "Group") +
+  guides (fill = "none") +
+  theme_cowplot()
+f0
+```
+
+## Ankle joint
+
+```{r}
+df_plot <- df[grepl("group|Ankle", names (df))]
+
+df_plot_2 <- df_plot[-1] %>%
+  map (as.data.frame) %>%
+  bind_rows(.id = "varz") %>%
+  mutate (group = rep (df_plot$group, nrow (.)/length(df_plot$group))) %>%
+  select (group, everything()) %>%
+  separate (varz, c("side", "joint", "axis"), "_") %>%
+  pivot_longer(cols = starts_with("t"),
+               names_to = "cycle",
+               values_to = "angle")%>%
+  mutate (cycle = str_remove(cycle, "t") %>% as.numeric)%>%
+  mutate (group = factor (group, levels = c("HEA", "HOA"), labels = c("Healthy", "OA")),
+          side = factor (side, levels = c("R", "L"), labels = c("Right", "Left"))) %>%
+  group_by(group, side, axis, cycle) %>%
+  summarise (Mean = mean (angle),
+             Sd = sd (angle))
+
+f1 <- ggplot (df_plot_2) +
+  geom_line(aes(x = cycle, y = Mean, color = group)) +
+  geom_ribbon(aes (x = cycle, ymin = Mean -Sd, ymax = Mean + Sd, fill = group), alpha = 0.2) + 
+  facet_wrap(side ~ axis, scales = "free") +
+  scale_color_manual(values = c("blue", "red")) +
+  scale_fill_manual (values = c("blue", "red")) +
+  labs (y = "Ankle angle (°)",
+        x = "Stride (%)",
+        color = "Group") +
+  guides (fill = "none") +
+  theme_cowplot()
+f1
+```
+
+
+## Knee joint
+
+```{r}
+df_plot <- df[grepl("group|Knee", names (df))]
+
+df_plot_2 <- df_plot[-1] %>%
+  map (as.data.frame) %>%
+  bind_rows(.id = "varz") %>%
+  mutate (group = rep (df_plot$group, nrow (.)/length(df_plot$group))) %>%
+  select (group, everything()) %>%
+  separate (varz, c("side", "joint", "axis"), "_") %>%
+  pivot_longer(cols = starts_with("t"),
+               names_to = "cycle",
+               values_to = "angle")%>%
+  mutate (cycle = str_remove(cycle, "t") %>% as.numeric)%>%
+  mutate (group = factor (group, levels = c("HEA", "HOA"), labels = c("Healthy", "OA")),
+          side = factor (side, levels = c("R", "L"), labels = c("Right", "Left"))) %>%
+  group_by(group, side, axis, cycle) %>%
+  summarise (Mean = mean (angle),
+             Sd = sd (angle))
+
+f2 <- ggplot (df_plot_2) +
+  geom_line(aes(x = cycle, y = Mean, color = group)) +
+  geom_ribbon(aes (x = cycle, ymin = Mean -Sd, ymax = Mean + Sd, fill = group), alpha = 0.2) + 
+  facet_wrap(side ~ axis, scales = "free") +
+  scale_color_manual(values = c("blue", "red")) +
+  scale_fill_manual (values = c("blue", "red")) +
+  labs (y = "Knee angle (°)",
+        x = "Stride (%)",
+        color = "Group") +
+  guides (fill = "none") +
+  theme_cowplot()
+f2
+```
+
+
+## Hip joint
+
+```{r}
+df_plot <- df[grepl("group|Hip", names (df))]
+
+df_plot_2 <- df_plot[-1] %>%
+  map (as.data.frame) %>%
+  bind_rows(.id = "varz") %>%
+  mutate (group = rep (df_plot$group, nrow (.)/length(df_plot$group))) %>%
+  select (group, everything()) %>%
+  separate (varz, c("side", "joint", "axis"), "_") %>%
+  pivot_longer(cols = starts_with("t"),
+               names_to = "cycle",
+               values_to = "angle")%>%
+  mutate (cycle = str_remove(cycle, "t") %>% as.numeric)%>%
+  mutate (group = factor (group, levels = c("HEA", "HOA"), labels = c("Healthy", "OA")),
+          side = factor (side, levels = c("R", "L"), labels = c("Right", "Left"))) %>%
+  group_by(group, side, axis, cycle) %>%
+  summarise (Mean = mean (angle),
+             Sd = sd (angle))
+
+f3 <- ggplot (df_plot_2) +
+  geom_line(aes(x = cycle, y = Mean, color = group)) +
+  geom_ribbon(aes (x = cycle, ymin = Mean -Sd, ymax = Mean + Sd, fill = group), alpha = 0.2) + 
+  facet_wrap(side ~ axis, scales = "free") +
+  scale_color_manual(values = c("blue", "red")) +
+  scale_fill_manual (values = c("blue", "red")) +
+  labs (y = "Hip angle (°)",
+        x = "Stride (%)",
+        color = "Group") +
+  guides (fill = "none") +
+  theme_cowplot()
+f3
+```
+
+
+## Pelvis
+
+```{r}
+df_plot <- df[grepl("group|Pelvis", names (df))]
+
+df_plot_2 <- df_plot[-1] %>%
+  map (as.data.frame) %>%
+  bind_rows(.id = "varz") %>%
+  mutate (group = rep (df_plot$group, nrow (.)/length(df_plot$group))) %>%
+  select (group, everything()) %>%
+  separate (varz, c("side", "joint", "axis"), "_") %>%
+  pivot_longer(cols = starts_with("t"),
+               names_to = "cycle",
+               values_to = "angle")%>%
+  mutate (cycle = str_remove(cycle, "t") %>% as.numeric)%>%
+  mutate (group = factor (group, levels = c("HEA", "HOA"), labels = c("Healthy", "OA")),
+          side = factor (side, levels = c("R", "L"), labels = c("Right", "Left"))) %>%
+  group_by(group, side, axis, cycle) %>%
+  summarise (Mean = mean (angle),
+             Sd = sd (angle))
+
+f4 <- ggplot (df_plot_2) +
+  geom_line(aes(x = cycle, y = Mean, color = group)) +
+  geom_ribbon(aes (x = cycle, ymin = Mean -Sd, ymax = Mean + Sd, fill = group), alpha = 0.2) + 
+  facet_wrap(side ~ axis, scales = "free") +
+  scale_color_manual(values = c("blue", "red")) +
+  scale_fill_manual (values = c("blue", "red")) +
+  labs (y = "Pelvis angle (°)",
+        x = "Stride (%)",
+        color = "Group") +
+  guides (fill = "none") +
+  theme_cowplot()
+f4
+```
+
+
+## Spine
+
+```{r}
+df_plot <- df[grepl("group|Spine", names (df))]
+
+df_plot_2 <- df_plot[-1] %>%
+  map (as.data.frame) %>%
+  bind_rows(.id = "varz") %>%
+  mutate (group = rep (df_plot$group, nrow (.)/length(df_plot$group))) %>%
+  select (group, everything()) %>%
+  separate (varz, c("side", "joint", "axis"), "_") %>%
+  pivot_longer(cols = starts_with("t"),
+               names_to = "cycle",
+               values_to = "angle")%>%
+  mutate (cycle = str_remove(cycle, "t") %>% as.numeric)%>%
+  mutate (group = factor (group, levels = c("HEA", "HOA"), labels = c("Healthy", "OA")),
+          side = factor (side, levels = c("R", "L"), labels = c("Right", "Left"))) %>%
+  group_by(group, side, axis, cycle) %>%
+  summarise (Mean = mean (angle),
+             Sd = sd (angle))
+
+f5 <- ggplot (df_plot_2) +
+  geom_line(aes(x = cycle, y = Mean, color = group)) +
+  geom_ribbon(aes (x = cycle, ymin = Mean -Sd, ymax = Mean + Sd, fill = group), alpha = 0.2) + 
+  facet_wrap(side ~ axis, scales = "free") +
+  scale_color_manual(values = c("blue", "red")) +
+  scale_fill_manual (values = c("blue", "red")) +
+  labs (y = "Spine angle (°)",
+        x = "Stride (%)",
+        color = "Group") +
+  guides (fill = "none") +
+  theme_cowplot()
+f5
+```
+
+
+## Thorax
+
+```{r}
+df_plot <- df[grepl("group|Thorax", names (df))]
+
+df_plot_2 <- df_plot[-1] %>%
+  map (as.data.frame) %>%
+  bind_rows(.id = "varz") %>%
+  mutate (group = rep (df_plot$group, nrow (.)/length(df_plot$group))) %>%
+  select (group, everything()) %>%
+  separate (varz, c("side", "joint", "axis"), "_") %>%
+  pivot_longer(cols = starts_with("t"),
+               names_to = "cycle",
+               values_to = "angle")%>%
+  mutate (cycle = str_remove(cycle, "t") %>% as.numeric)%>%
+  mutate (group = factor (group, levels = c("HEA", "HOA"), labels = c("Healthy", "OA")),
+          side = factor (side, levels = c("R", "L"), labels = c("Right", "Left"))) %>%
+  group_by(group, side, axis, cycle) %>%
+  summarise (Mean = mean (angle),
+             Sd = sd (angle))
+
+f6 <- ggplot (df_plot_2) +
+  geom_line(aes(x = cycle, y = Mean, color = group)) +
+  geom_ribbon(aes (x = cycle, ymin = Mean -Sd, ymax = Mean + Sd, fill = group), alpha = 0.2) + 
+  facet_wrap(side ~ axis, scales = "free") +
+  scale_color_manual(values = c("blue", "red")) +
+  scale_fill_manual (values = c("blue", "red")) +
+  labs (y = "Thorax angle (°)",
+        x = "Stride (%)",
+        color = "Group") +
+  guides (fill = "none") +
+  theme_cowplot()
+f6
+```
+
+
+## Neck
+
+```{r}
+df_plot <- df[grepl("group|Neck", names (df))]
+
+df_plot_2 <- df_plot[-1] %>%
+  map (as.data.frame) %>%
+  bind_rows(.id = "varz") %>%
+  mutate (group = rep (df_plot$group, nrow (.)/length(df_plot$group))) %>%
+  select (group, everything()) %>%
+  separate (varz, c("side", "joint", "axis"), "_") %>%
+  pivot_longer(cols = starts_with("t"),
+               names_to = "cycle",
+               values_to = "angle")%>%
+  mutate (cycle = str_remove(cycle, "t") %>% as.numeric)%>%
+  mutate (group = factor (group, levels = c("HEA", "HOA"), labels = c("Healthy", "OA")),
+          side = factor (side, levels = c("R", "L"), labels = c("Right", "Left"))) %>%
+  group_by(group, side, axis, cycle) %>%
+  summarise (Mean = mean (angle),
+             Sd = sd (angle))
+
+f7 <- ggplot (df_plot_2) +
+  geom_line(aes(x = cycle, y = Mean, color = group)) +
+  geom_ribbon(aes (x = cycle, ymin = Mean -Sd, ymax = Mean + Sd, fill = group), alpha = 0.2) + 
+  facet_wrap(side ~ axis, scales = "free") +
+  scale_color_manual(values = c("blue", "red")) +
+  scale_fill_manual (values = c("blue", "red")) +
+  labs (y = "Neck angle (°)",
+        x = "Stride (%)",
+        color = "Group") +
+  guides (fill = "none") +
+  theme_cowplot()
+f7
+```
+
+
+
+## Head
+
+```{r}
+df_plot <- df[grepl("group|Head", names (df))]
+
+df_plot_2 <- df_plot[-1] %>%
+  map (as.data.frame) %>%
+  bind_rows(.id = "varz") %>%
+  mutate (group = rep (df_plot$group, nrow (.)/length(df_plot$group))) %>%
+  select (group, everything()) %>%
+  separate (varz, c("side", "joint", "axis"), "_") %>%
+  pivot_longer(cols = starts_with("t"),
+               names_to = "cycle",
+               values_to = "angle")%>%
+  mutate (cycle = str_remove(cycle, "t") %>% as.numeric)%>%
+  mutate (group = factor (group, levels = c("HEA", "HOA"), labels = c("Healthy", "OA")),
+          side = factor (side, levels = c("R", "L"), labels = c("Right", "Left"))) %>%
+  group_by(group, side, axis, cycle) %>%
+  summarise (Mean = mean (angle),
+             Sd = sd (angle))
+
+f8 <- ggplot (df_plot_2) +
+  geom_line(aes(x = cycle, y = Mean, color = group)) +
+  geom_ribbon(aes (x = cycle, ymin = Mean -Sd, ymax = Mean + Sd, fill = group), alpha = 0.2) + 
+  facet_wrap(side ~ axis, scales = "free") +
+  scale_color_manual(values = c("blue", "red")) +
+  scale_fill_manual (values = c("blue", "red")) +
+  labs (y = "Head angle (°)",
+        x = "Stride (%)",
+        color = "Group") +
+  guides (fill = "none") +
+  theme_cowplot()
+f8
+```
+
+
+
+## Shoulder
+
+```{r}
+df_plot <- df[grepl("group|Shoulder", names (df))]
+
+df_plot_2 <- df_plot[-1] %>%
+  map (as.data.frame) %>%
+  bind_rows(.id = "varz") %>%
+  mutate (group = rep (df_plot$group, nrow (.)/length(df_plot$group))) %>%
+  select (group, everything()) %>%
+  separate (varz, c("side", "joint", "axis"), "_") %>%
+  pivot_longer(cols = starts_with("t"),
+               names_to = "cycle",
+               values_to = "angle")%>%
+  mutate (cycle = str_remove(cycle, "t") %>% as.numeric)%>%
+  mutate (group = factor (group, levels = c("HEA", "HOA"), labels = c("Healthy", "OA")),
+          side = factor (side, levels = c("R", "L"), labels = c("Right", "Left"))) %>%
+  group_by(group, side, axis, cycle) %>%
+  summarise (Mean = mean (angle),
+             Sd = sd (angle))
+
+f9 <- ggplot (df_plot_2) +
+  geom_line(aes(x = cycle, y = Mean, color = group)) +
+  geom_ribbon(aes (x = cycle, ymin = Mean -Sd, ymax = Mean + Sd, fill = group), alpha = 0.2) + 
+  facet_wrap(side ~ axis, scales = "free") +
+  scale_color_manual(values = c("blue", "red")) +
+  scale_fill_manual (values = c("blue", "red")) +
+  labs (y = "Shoulder angle (°)",
+        x = "Stride (%)",
+        color = "Group") +
+  guides (fill = "none") +
+  theme_cowplot()
+f9
+```
+
+
+
+## Elbow
+
+```{r}
+df_plot <- df[grepl("group|Elbow", names (df))]
+
+df_plot_2 <- df_plot[-1] %>%
+  map (as.data.frame) %>%
+  bind_rows(.id = "varz") %>%
+  mutate (group = rep (df_plot$group, nrow (.)/length(df_plot$group))) %>%
+  select (group, everything()) %>%
+  separate (varz, c("side", "joint", "axis"), "_") %>%
+  pivot_longer(cols = starts_with("t"),
+               names_to = "cycle",
+               values_to = "angle")%>%
+  mutate (cycle = str_remove(cycle, "t") %>% as.numeric)%>%
+  mutate (group = factor (group, levels = c("HEA", "HOA"), labels = c("Healthy", "OA")),
+          side = factor (side, levels = c("R", "L"), labels = c("Right", "Left"))) %>%
+  group_by(group, side, axis, cycle) %>%
+  summarise (Mean = mean (angle),
+             Sd = sd (angle))
+
+f10 <- ggplot (df_plot_2) +
+  geom_line(aes(x = cycle, y = Mean, color = group)) +
+  geom_ribbon(aes (x = cycle, ymin = Mean -Sd, ymax = Mean + Sd, fill = group), alpha = 0.2) + 
+  facet_wrap(side ~ axis, scales = "free") +
+  scale_color_manual(values = c("blue", "red")) +
+  scale_fill_manual (values = c("blue", "red")) +
+  labs (y = "Elbow angle (°)",
+        x = "Stride (%)",
+        color = "Group") +
+  guides (fill = "none") +
+  theme_cowplot()
+f10
+```
+
+
+## Wrist
+
+```{r}
+df_plot <- df[grepl("group|Wrist", names (df))]
+
+df_plot_2 <- df_plot[-1] %>%
+  map (as.data.frame) %>%
+  bind_rows(.id = "varz") %>%
+  mutate (group = rep (df_plot$group, nrow (.)/length(df_plot$group))) %>%
+  select (group, everything()) %>%
+  separate (varz, c("side", "joint", "axis"), "_") %>%
+  pivot_longer(cols = starts_with("t"),
+               names_to = "cycle",
+               values_to = "angle")%>%
+  mutate (cycle = str_remove(cycle, "t") %>% as.numeric)%>%
+  mutate (group = factor (group, levels = c("HEA", "HOA"), labels = c("Healthy", "OA")),
+          side = factor (side, levels = c("R", "L"), labels = c("Right", "Left"))) %>%
+  group_by(group, side, axis, cycle) %>%
+  summarise (Mean = mean (angle),
+             Sd = sd (angle))
+
+f11<- ggplot (df_plot_2) +
+  geom_line(aes(x = cycle, y = Mean, color = group)) +
+  geom_ribbon(aes (x = cycle, ymin = Mean -Sd, ymax = Mean + Sd, fill = group), alpha = 0.2) + 
+  facet_wrap(side ~ axis, scales = "free") +
+  scale_color_manual(values = c("blue", "red")) +
+  scale_fill_manual (values = c("blue", "red")) +
+  labs (y = "Wrist angle (°)",
+        x = "Stride (%)",
+        color = "Group") +
+  guides (fill = "none") +
+  theme_cowplot()
+f11
+```
