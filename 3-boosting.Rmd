@@ -10,6 +10,7 @@ editor_options:
 library (tidyverse)
 library (FDboost)
 library (mltest)
+source("predfun_FDboost.R")
 ```
 # Import files
 
@@ -28,7 +29,7 @@ fun_names <- fun_names[!grepl("Ankle_Z|Ankle_Y|Elbows_Y|Elbows_Z",
 lhs <- "kl_severity ~ "
 
 rhs1 <- paste0("bsignal(", fun_names, 
-                   ", s = cycle, differences = 0, df = 1)")
+                   ", s = cycle, differences = 1)")
 rhs2 <- paste0(rhs1, "%O% bols(class, df = 2, contrasts.arg = 'contr.dummy')")
 rhs <- paste(rhs2, collapse = " + ")
 
@@ -71,8 +72,15 @@ mod[best_iteration]
 # plot the important predictors
 plot(mboost::varimp(mod))
 # plot the estimated effects of the model
-plot(mod)
-
+# hot fix:
+which <- intersect(1:length(mod$baselearner),
+                   c(0, selected(mod)))
+coefs <- coef(mod, which=which)[[2]]
+for(cf in coefs){
+  matplot(cf$x, cf$value, type="l", main = 
+            gsub("bsignal\\((.*)\\) %.*", "\\1", cf$main),
+          xlab = cf$xlab, ylab = "Partial effect")
+}
 
 pd <- predict(mod, type = "response")
 apply(pd,1,which.max)
