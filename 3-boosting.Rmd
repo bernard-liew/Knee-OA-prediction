@@ -30,7 +30,7 @@ lhs <- "kl_severity ~ "
 
 rhs1 <- paste0("bsignal(", fun_names, 
                    ", s = cycle, differences = 1)")
-rhs2 <- paste0(rhs1, "%O% bols(class, df = 2, contrasts.arg = 'contr.dummy')")
+rhs2 <- paste0(rhs1, "%O% bols(class, df = 3, contrasts.arg = 'contr.dummy')")
 rhs <- paste(rhs2, collapse = " + ")
 
 form <- as.formula( paste0(lhs, rhs) )
