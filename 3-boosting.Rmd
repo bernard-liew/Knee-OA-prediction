@@ -10,7 +10,6 @@ editor_options:
 library (tidyverse)
 library (FDboost)
 library (mltest)
-source("predfun_FDboost.R")
 ```
 # Import files
 
@@ -82,6 +81,92 @@ for(cf in coefs){
           xlab = cf$xlab, ylab = "Partial effect")
 }
 
+###############################################################################
+# function to create data for plots
+# 
+# usage 
+#   which_feature: gives the number of the selected feature
+#   aggregate_fun: takes a function to compute a "typical" curve, e.g.,
+#                  the a certain quantile in the population, per default
+#                  the mean curve (a theoretical person whose feature values 
+#                  are larger than 50% of all others); using mean doesnt work as 
+#                  features are zero mean scaled; another option would
+#   type: when "response", will compute probabilites, otherwise ("link")
+#         log-odds between all classes and the reference class
+#
+#   returns: returns a 101x4 (101x3 for log-odds) matrix describing the
+#            the cumulative change in probability (log-odds) when looking at
+#            the chosen feature across the cycle points 
+create_plotdata <- function(which_feature, 
+                            aggregate_fun = median,
+                            type = "response")
+{
+  
+  feature_name <- mod$baselearner[[which_feature]]$get_names()[1]
+  aggreg_data <- apply(df[[feature_name]], 2, aggregate_fun)
+  # create zero-padded data for cumulative plots
+  padded_data <- matrix(aggreg_data, nrow=1)[rep(1,101),]
+  padded_data[upper.tri(padded_data)] <- 0
+  # create probabilities / log-odds
+  newdata <- df
+  newdata[[feature_name]] <- I(padded_data)
+  pred <- predict(mod, newdata = newdata, 
+                  which = which_feature, type = type)
+  if(type != "response") pred <- matrix(pred, ncol = 3)
+  return(pred)
+  
+}
+
+# function using the above function, compute for all features, and
+# return the data in a ggplot-friendly format
+#   all_selected: all selected numbers (which)
+#   type: see above
+pred_for_all <- function(all_selected, type = "response")
+{
+  
+  which_feature_names <- sapply(all_selected, function(w) 
+    mod$baselearner[[w]]$get_names()[1])
+  pp <- lapply(all_selected, function(w) 
+    create_plotdata(which_feature = w, type = type))
+  
+  names(pp) <- which_feature_names
+  names_colums <- levels(df$kl_severity) 
+  if(type != "response") names_colums <- names_colums[-1]
+    
+  ret_df <- do.call("rbind", 
+                    lapply(1:length(all_selected), 
+                           function(i) data.frame(
+                             value = c(pp[[i]]),
+                             cycle = rep(1:101, length(names_colums)),
+                             class = rep(names_colums, each = 101),
+                             feature = which_feature_names[i])))
+  
+  return(ret_df)
+  
+}
+
+# cumul. probability for median curve (mean curve is zero due to scaling)
+preds <- pred_for_all(which)
+# log-odds 
+preds_odds <- pred_for_all(which, type = "link")
+
+# plot for probabilities
+ggplot(preds, aes(x = cycle, y = value, color = class)) + 
+  geom_line() + facet_wrap(~ feature#, consider using scales = "free" 
+                                    # -> progress better visible, but 
+                                    #    small differences maybe not relevant
+                           ) +  
+  theme_bw() + 
+  ylab("Probability for Class") + xlab("Cycle")
+
+# very similar for log-odds
+ggplot(preds_odds, aes(x = cycle, y = value, color = class)) + 
+  geom_line() + facet_wrap(~ feature) + theme_bw() + 
+  ylab("Log-odds for being in a Class vs. being Class 0") + xlab("Cycle")
+
+###############################################################################
+
+# the normal predictions
 pd <- predict(mod, type = "response")
 apply(pd,1,which.max)
 ```
