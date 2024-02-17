@@ -120,14 +120,17 @@ create_plotdata <- function(which_feature,
 # function using the above function, compute for all features, and
 # return the data in a ggplot-friendly format
 #   all_selected: all selected numbers (which)
+#   aggregate_fun: see above
 #   type: see above
-pred_for_all <- function(all_selected, type = "response")
+pred_for_all <- function(all_selected, aggregate_fun = median,
+                         type = "response")
 {
   
   which_feature_names <- sapply(all_selected, function(w) 
     mod$baselearner[[w]]$get_names()[1])
   pp <- lapply(all_selected, function(w) 
-    create_plotdata(which_feature = w, type = type))
+    create_plotdata(which_feature = w, aggregate_fun = aggregate_fun,
+                    type = type))
   
   names(pp) <- which_feature_names
   names_colums <- levels(df$kl_severity) 
