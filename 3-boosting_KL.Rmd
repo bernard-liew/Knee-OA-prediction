@@ -1,0 +1,515 @@
+---
+title: "1-preparation"
+output: html_document
+date: "`r Sys.Date()`"
+editor_options: 
+  chunk_output_type: console
+---
+# Load package
+```{r}
+library (tidyverse)
+library (FDboost)
+library (epiR)
+library (mltest)
+library (pROC)
+library (dcurves)
+```
+# Import files
+
+```{r}
+df <- readRDS ("merged_dat.RDS")
+
+# Remove segment angles
+df <- df[!grepl("Head|Thorax|Pelvis|Foot|Elbows_Y|Elbows_Z", names (df))]
+
+df$cycle <- NULL
+```
+
+# Create train test split
+
+```{r}
+
+set.seed(456)
+train_id <- caret::createDataPartition(
+  y = df$group,
+  times = 1,
+  p = 0.7, # 70-30 split
+  list = TRUE)[[1]]
+
+test_id <- !(1:length(df$id) %in% train_id)
+
+train_test_split_mat <- function (x, id = train_id) {
+  
+  x[id,]
+}
+
+train_test_split_vec <- function (x, id = train_id) {
+  
+  x[id]
+}
+
+train_df <- df %>%
+  map_if(is.matrix, train_test_split_mat, train_id) %>%
+  map_at(c(1:9), train_test_split_vec, train_id)
+
+test_df <- df %>%
+  map_if(is.matrix, train_test_split_mat, test_id) %>%
+  map_at(c(1:9), train_test_split_vec, test_id)
+
+
+train_df$kl_severity <- factor (train_df$kl_severity)
+test_df$kl_severity <- factor (test_df$kl_severity)
+df$kl_severity <- factor (df$kl_severity)
+
+df$class <- 
+  train_df$class <- 
+  test_df$class <- 
+  factor(levels(train_df$kl_severity)[-nlevels(train_df$kl_severity)])
+
+df$cycle <- train_df$cycle <-  test_df$cycle <- 1:101
+
+```
+
+
+# Scaling
+
+```{r}
+fun_names <- grep("_Z|X|Y", names (train_df), value = TRUE)
+
+for (n in seq_along (fun_names)) {
+  
+  scale_mean <- apply (train_df[[fun_names[n]]], 2, mean)
+  test_df[[fun_names[n]]] <- scale(test_df[[fun_names[n]]], center = scale_mean)
+  
+}
+
+train_df[fun_names] <- train_df[fun_names] %>%
+  map (scale, center = TRUE, scale = FALSE)
+
+df[fun_names] <- df[fun_names] %>%
+  map (scale, center = TRUE, scale = FALSE)
+
+```
+
+
+# Model
+
+## Based on train test split
+
+```{r}
+
+lhs <- "kl_severity ~ "
+
+rhs1 <- paste0("bsignal(", fun_names, 
+                   ", s = cycle, differences = 1)")
+rhs2 <- paste0(rhs1, "%O% bols(class, df = 3, contrasts.arg = 'contr.dummy')")
+rhs <- paste(rhs2, collapse = " + ")
+
+form <- as.formula( paste0(lhs, rhs) )
+
+mod <- FDboost(
+  formula = form, 
+  data = train_df, 
+  timeformula = NULL, 
+  family = Multinomial(), 
+  # define the boosting specific parameters
+  # mstop:  set to a large number, such as 1000.
+  #         We will choose the optimal stoppting
+  #         iteration in the next step via cross-validation
+  # nu:     learning rate: 0.1 is a good default, which 
+  #         works for most cases
+  control = boost_control(mstop = 1000, 
+                          nu = 0.1)
+)
+
+
+# through all mstop iterations, whether we should have
+# stopped early as the algorithm might already have
+# overfitted
+set.seed(1)
+folds = cv(rep(1, length(unique(mod$id))), 
+           type = "kfold", B = 10)
+cvr = cvrisk(mod, folds = folds)
+# plot the cross-validation search and 
+# the best stopping iteration
+plot(cvr)
+# redefine the model and set it to the best stopping
+# iteration (which is done inplace): 
+(best_iteration = mstop(cvr))
+mod[best_iteration]
+# plot the important predictors
+plot(mboost::varimp(mod))
+# plot the estimated effects of the model
+# hot fix:
+which <- intersect(1:length(mod$baselearner),
+                   c(0, selected(mod)))
+coefs <- coef(mod, which=which)[[2]]
+for(cf in coefs){
+  matplot(cf$x, cf$value, type="l", main = 
+            gsub("bsignal\\((.*)\\) %.*", "\\1", cf$main),
+          xlab = cf$xlab, ylab = "Partial effect")
+}
+
+```
+
+### Internal validation
+
+```{r}
+# the normal predictions
+pd <- predict(mod, type = "response")
+apply(pd,1,which.max)
+
+# KL0 vs all
+p <- ifelse (apply(pd,1,which.max) == 1, 1, 0)
+o <- ifelse (as.numeric (train_df$kl_severity)== 1, 1, 0)
+
+tab <- table(p, o)
+a <- tab[2,2]
+b <- tab[2,1]
+c <- tab[1,2]
+d <- tab[1,1]
+
+int_val <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)
+int_val
+
+
+# KL2 vs all
+p <- ifelse (apply(pd,1,which.max) == 2, 1, 0)
+o <- ifelse (as.numeric (train_df$kl_severity)== 2, 1, 0)
+
+tab <- table(p, o)
+a <- tab[2,2]
+b <- tab[2,1]
+c <- tab[1,2]
+d <- tab[1,1]
+
+int_val <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)
+int_val
+
+# KL3 vs all
+p <- ifelse (apply(pd,1,which.max) == 3, 1, 0)
+o <- ifelse (as.numeric (train_df$kl_severity)== 3, 1, 0)
+
+tab <- table(p, o)
+a <- tab[2,2]
+b <- tab[2,1]
+c <- tab[1,2]
+d <- tab[1,1]
+
+int_val <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)
+int_val
+
+# KL4 vs all
+p <- ifelse (apply(pd,1,which.max) == 4, 1, 0)
+o <- ifelse (as.numeric (train_df$kl_severity)== 4, 1, 0)
+
+tab <- table(p, o)
+a <- tab[2,2]
+b <- tab[2,1]
+c <- tab[1,2]
+d <- tab[1,1]
+
+int_val <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)
+int_val
+
+roc(o, p)
+ci(roc(o, p))
+```
+
+### External validation
+
+```{r}
+# the normal predictions
+pd <- predict(mod, newdata = test_df, type = "response")
+apply(pd,1,which.max)
+
+# KL0 vs all
+p <- ifelse (apply(pd,1,which.max) == 1, 1, 0)
+o <- ifelse (as.numeric (test_df$kl_severity)== 1, 1, 0)
+
+tab <- table(p, o)
+a <- tab[2,2]
+b <- tab[2,1]
+c <- tab[1,2]
+d <- tab[1,1]
+
+ext_val <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)
+ext_val
+
+
+# KL2 vs all
+p <- ifelse (apply(pd,1,which.max) == 2, 1, 0)
+o <- ifelse (as.numeric (test_df$kl_severity)== 2, 1, 0)
+
+tab <- table(p, o)
+a <- tab[2,2]
+b <- tab[2,1]
+c <- tab[1,2]
+d <- tab[1,1]
+
+ext_val <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)
+ext_val
+
+# KL3 vs all
+p <- ifelse (apply(pd,1,which.max) == 3, 1, 0)
+o <- ifelse (as.numeric (test_df$kl_severity)== 3, 1, 0)
+
+tab <- table(p, o)
+a <- tab[2,2]
+b <- tab[2,1]
+c <- tab[1,2]
+d <- tab[1,1]
+
+ext_val <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)
+ext_val
+
+# KL4 vs all
+p <- ifelse (apply(pd,1,which.max) == 4, 1, 0)
+o <- ifelse (as.numeric (test_df$kl_severity)== 4, 1, 0)
+
+tab <- table(p, o)
+a <- tab[2,2]
+b <- tab[2,1]
+c <- tab[1,2]
+d <- tab[1,1]
+
+ext_val <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)
+ext_val
+
+plot (pROC::roc(o, p))
+```
+
+
+## Based on bootstrapping all data
+
+```{r}
+
+mod <- FDboost(
+  formula = form, 
+  data = df, 
+  timeformula = NULL, 
+  family = Multinomial(), 
+  # define the boosting specific parameters
+  # mstop:  set to a large number, such as 1000.
+  #         We will choose the optimal stoppting
+  #         iteration in the next step via cross-validation
+  # nu:     learning rate: 0.1 is a good default, which 
+  #         works for most cases
+  control = boost_control(mstop = 500, 
+                          nu = 0.1)
+)
+
+
+# through all mstop iterations, whether we should have
+# stopped early as the algorithm might already have
+# overfitted
+set.seed(1)
+folds = cv(rep(1, length(unique(mod$id))), 
+           type = "kfold", B = 10)
+cvr = cvrisk(mod, folds = folds)
+# plot the cross-validation search and 
+# the best stopping iteration
+plot(cvr)
+# redefine the model and set it to the best stopping
+# iteration (which is done inplace): 
+(best_iteration = mstop(cvr))
+mod[best_iteration]
+# plot the important predictors
+plot(mboost::varimp(mod))
+# plot the estimated effects of the model
+# hot fix:
+which <- intersect(1:length(mod$baselearner),
+                   c(0, selected(mod)))
+coefs <- coef(mod, which=which)[[2]]
+for(cf in coefs){
+  matplot(cf$x, cf$value, type="l", main = 
+            gsub("bsignal\\((.*)\\) %.*", "\\1", cf$main),
+          xlab = cf$xlab, ylab = "Partial effect")
+}
+
+```
+
+```{r}
+
+set.seed(1)
+boot_folds = cv(rep(1, length(unique(mod$id))), 
+           type = "bootstrap", B = 200)
+
+
+boot_list <- cvrisk(mod, 
+                     folds = boot_folds, 
+                     fun = function(object) predict(object, 
+                                                    type = "response"))
+
+boot_list2 <- boot_list %>%
+  map(~apply(.x,1,which.max)) %>%
+  bind_cols()
+
+boot_list2$outcome <- as.numeric (df$kl_severity)
+boot_list2 <- boot_list2 %>%
+  dplyr::select(outcome, everything ())
+
+
+# KL0 vs all
+o <- ifelse (boot_list2$outcome == 1, 0, 1) # 0 is healthy, 1 is OA
+
+val_list <- vector("list", 200)
+
+for (n in 1:200) {
+  
+  p <- ifelse (boot_list2[, n + 1] == 1, 0, 1) %>% as.numeric
+  
+  tab <- table(p, o)
+  a <- tab[2,2]
+  b <- tab[2,1]
+  c <- tab[1,2]
+  d <- tab[1,1]
+
+ val_list[[n]] <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)$detail[,c(1,2)]
+  
+}
+
+
+
+val_df <- bind_rows(val_list, .id = "boot") %>%
+  filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
+                           "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
+  group_by(statistic) %>%
+  summarise (Est = mean (est),
+             LB = quantile (est, probs = 0.025),
+             UB = quantile (est, probs = 0.975)) %>%
+  mutate_if (is.numeric, round, 2)
+
+
+# KL2 vs all
+o <- ifelse (boot_list2$outcome == 2, 1, 0) # 2 is KL2
+
+val_list <- vector("list", 200)
+
+for (n in 1:200) {
+  
+  p <- ifelse (boot_list2[, n + 1] == 2, 1, 0) %>% as.numeric
+  
+  tab <- table(p, o)
+  a <- tab[2,2]
+  b <- tab[2,1]
+  c <- tab[1,2]
+  d <- tab[1,1]
+
+ val_list[[n]] <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)$detail[,c(1,2)]
+  
+}
+
+
+
+val_df <- bind_rows(val_list, .id = "boot") %>%
+  filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
+                           "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
+  group_by(statistic) %>%
+  summarise (Est = mean (est),
+             LB = quantile (est, probs = 0.025),
+             UB = quantile (est, probs = 0.975)) %>%
+  mutate_if (is.numeric, round, 2)
+
+
+# KL3 vs all
+o <- ifelse (boot_list2$outcome == 3, 1, 0) # 3 is KL3
+
+val_list <- vector("list", 200)
+
+for (n in 1:200) {
+  
+  p <- ifelse (boot_list2[, n + 1] == 3, 1, 0) %>% as.numeric
+  
+  tab <- table(p, o)
+  a <- tab[2,2]
+  b <- tab[2,1]
+  c <- tab[1,2]
+  d <- tab[1,1]
+
+ val_list[[n]] <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)$detail[,c(1,2)]
+  
+}
+
+
+
+val_df <- bind_rows(val_list, .id = "boot") %>%
+  filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
+                           "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
+  group_by(statistic) %>%
+  summarise (Est = mean (est),
+             LB = quantile (est, probs = 0.025),
+             UB = quantile (est, probs = 0.975)) %>%
+  mutate_if (is.numeric, round, 2)
+
+
+# KL4 vs all
+o <- ifelse (boot_list2$outcome == 4, 1, 0) # 4 is KL4
+
+val_list <- vector("list", 200)
+
+for (n in 1:200) {
+  
+  p <- ifelse (boot_list2[, n + 1] == 4, 1, 0) %>% as.numeric
+  
+  tab <- table(p, o)
+  a <- tab[2,2]
+  b <- tab[2,1]
+  c <- tab[1,2]
+  d <- tab[1,1]
+
+ val_list[[n]] <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)$detail[,c(1,2)]
+  
+}
+
+
+
+val_df <- bind_rows(val_list, .id = "boot") %>%
+  filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
+                           "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
+  group_by(statistic) %>%
+  summarise (Est = mean (est),
+             LB = quantile (est, probs = 0.025),
+             UB = quantile (est, probs = 0.975)) %>%
+  mutate_if (is.numeric, round, 2)
+```
+
+
+# Save results
+
+```{r}
+saveRDS(mod, "mod.RDS")
+```
+
+# Plot results
+
+
+```{r}
+
+# cumul. probability for median curve (mean curve is zero due to scaling)
+preds <- pred_for_all(which)
+# log-odds 
+preds_odds <- pred_for_all(which, type = "link")
+
+# plot for probabilities
+ggplot(preds, aes(x = cycle, y = value, color = class)) + 
+  geom_line() + facet_wrap(~ feature#, consider using scales = "free" 
+                                    # -> progress better visible, but 
+                                    #    small differences maybe not relevant
+                           ) +  
+  theme_bw() + 
+  ylab("Probability for Class") + xlab("Cycle")
+
+# very similar for log-odds
+ggplot(preds_odds, aes(x = cycle, y = value, color = class)) + 
+  geom_line() + facet_wrap(~ feature) + theme_bw() + 
+  ylab("Log-odds for being in a Class vs. being Class 0") + xlab("Cycle")
+
+###############################################################################
+
+# the normal predictions
+pd <- predict(mod, type = "response")
+apply(pd,1,which.max)
+```
+
+

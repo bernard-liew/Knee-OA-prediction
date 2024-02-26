@@ -1,0 +1,83 @@
+---
+title: "1-preparation"
+output: html_document
+date: "`r Sys.Date()`"
+editor_options: 
+  chunk_output_type: console
+---
+# Load package
+```{r}
+library (tidyverse)
+library (abnormality)
+
+```
+# Import files
+
+```{r}
+df <- readRDS ("merged_dat.RDS")
+
+```
+
+# Tidy data
+
+```{r}
+
+healthy <- df$group == "HEA" 
+
+df_healthy <- df [grep("_Z|X|Y", names (df), value = TRUE)] %>%
+  map (~.x[healthy,])
+
+df_healthy2 <- vector ("list", 80)
+
+for (n in 1:80) {
+  
+  temp_list <- df_healthy %>%
+    map (~.x[n,]) %>%
+    bind_rows() %>%
+    unlist()
+  
+  df_healthy2[[n]] <- temp_list
+  
+}
+
+Ref <- df_healthy2 %>%
+  bind_cols() %>%
+  t()
+
+
+OA  <- df$group == "HOA" 
+
+df_OA <- df [grep("_Z|X|Y", names (df), value = TRUE)] %>%
+  map (~.x[OA,])
+
+df_OA2 <- vector ("list", 102)
+
+for (n in 1:102) {
+  
+  temp_list <- df_OA %>%
+    map (~.x[n,]) %>%
+    bind_rows() %>%
+    unlist()
+  
+  df_OA2[[n]] <- temp_list
+  
+}
+
+Subj <- df_OA2 %>%
+  bind_cols() %>%
+  t()
+
+abnormal_results <- vector ("numeric", dim(Subj)[1])
+
+for (n in 1:dim(Subj)[1]) {
+  
+  abnormal_results[n] <-  overall_abnormality(Subj[n,],
+                                              Ref,
+                                              dist_measure = "Euclidean",
+                                              stopping_rule = "TVE", 
+                                              TVE = .90)
+  
+}
+
+hist (abnormal_results)
+```

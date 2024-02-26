@@ -14,7 +14,7 @@ library (RWeka)
 # Import files
 
 ```{r}
-raw_path <- "../../../../../bl19622-SRES/research2/mocap_database/data_bertaux/HOA-M0-M6_HEA DataSet/Angles"
+raw_path <- "../../../../../../bl19622-SRES/research2/mocap_database/data_bertaux/HOA-M0-M6_HEA DataSet/Angles"
 
 List.Files <- list.files(raw_path)
 List.Files2 <- List.Files[!grepl("HOA_M6|time|Abs",List.Files)]
@@ -29,7 +29,7 @@ names (df_list) <- str_remove(List.Files2, ".arff")
 error_list <- df_list %>%
   map ("error") %>% unlist 
 
-raw_path2 <- "../../../../../bl19622-SRES/research2/mocap_database/data_bertaux"
+raw_path2 <- "../../../../../../bl19622-SRES/research2/mocap_database/data_bertaux"
 
 demo <- rio::import(file.path (raw_path2, "Metadata #R1.xlsx"))
 demo <- janitor::clean_names(demo)[,c(1:12)] %>%

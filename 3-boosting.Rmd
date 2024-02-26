@@ -19,7 +19,23 @@ df <- readRDS ("merged_dat.RDS")
 df$kl_severity <- factor (df$kl_severity)
 df$class <- factor(levels(df$kl_severity)[-nlevels(df$kl_severity)])
 ```
-#
+# Check and remove collinearity
+
+```{r}
+# Remove segment angles
+df <- df[!grepl("Head|Thorax|Pelvis|Foot|Elbows_Y|Elbows_Z", names (df))]
+
+
+cor_mat <- df [-c(1:10, 55)] %>%
+  map (as.numeric) %>%
+  bind_cols() %>%
+  cor()
+
+rm_var <- caret::findCorrelation(cor_mat, cutoff = 0.7, names = TRUE)
+
+df <- df[!grepl(paste0(rm_var, collapse = "|"), names(df))]
+```
+
 
 ```{r}
 fun_names <- grep("_Z|X|Y", names (df), value = TRUE)
