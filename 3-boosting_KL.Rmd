@@ -13,6 +13,8 @@ library (epiR)
 library (mltest)
 library (pROC)
 library (dcurves)
+
+source("common_functions.R")
 ```
 # Import files
 
@@ -94,10 +96,9 @@ df[fun_names] <- df[fun_names] %>%
 
 # Model
 
-## Based on train test split
+## Formula
 
 ```{r}
-
 lhs <- "kl_severity ~ "
 
 rhs1 <- paste0("bsignal(", fun_names, 
@@ -106,6 +107,13 @@ rhs2 <- paste0(rhs1, "%O% bols(class, df = 3, contrasts.arg = 'contr.dummy')")
 rhs <- paste(rhs2, collapse = " + ")
 
 form <- as.formula( paste0(lhs, rhs) )
+
+```
+
+
+## Based on train test split
+
+```{r}
 
 mod <- FDboost(
   formula = form, 
@@ -283,6 +291,12 @@ plot (pROC::roc(o, p))
 ## Based on bootstrapping all data
 
 ```{r}
+mod <- readRDS("mod_kl.RDS")$mod
+boot_list <- readRDS("mod_kl.RDS")$boot_list
+```
+
+
+```{r}
 
 mod <- FDboost(
   formula = form, 
@@ -329,6 +343,8 @@ for(cf in coefs){
 
 ```
 
+### Validation
+
 ```{r}
 
 set.seed(1)
@@ -371,7 +387,7 @@ for (n in 1:200) {
 
 
 
-val_df <- bind_rows(val_list, .id = "boot") %>%
+val_df1 <- bind_rows(val_list, .id = "boot") %>%
   filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
                            "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
   group_by(statistic) %>%
@@ -402,7 +418,7 @@ for (n in 1:200) {
 
 
 
-val_df <- bind_rows(val_list, .id = "boot") %>%
+val_df2 <- bind_rows(val_list, .id = "boot") %>%
   filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
                            "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
   group_by(statistic) %>%
@@ -433,7 +449,7 @@ for (n in 1:200) {
 
 
 
-val_df <- bind_rows(val_list, .id = "boot") %>%
+val_df3 <- bind_rows(val_list, .id = "boot") %>%
   filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
                            "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
   group_by(statistic) %>%
@@ -464,7 +480,7 @@ for (n in 1:200) {
 
 
 
-val_df <- bind_rows(val_list, .id = "boot") %>%
+val_df4 <- bind_rows(val_list, .id = "boot") %>%
   filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
                            "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
   group_by(statistic) %>%
@@ -474,17 +490,76 @@ val_df <- bind_rows(val_list, .id = "boot") %>%
   mutate_if (is.numeric, round, 2)
 ```
 
+### Plot the prediction results
+
+```{r}
+val_df <- bind_rows(val_df1, val_df2, val_df3, val_df4) %>%
+  mutate (Type = rep(c("KL0 vs all", "KL2 vs all", "KL3 vs all", "KL4 vs all"), each = 8) %>%
+            factor (levels = c("KL0 vs all", "KL2 vs all", "KL3 vs all", "KL4 vs all"))) %>%
+  mutate (Statistic = factor (statistic, 
+                              levels = c("se", "sp", "pv.neg", "pv.pos",
+                                         "lr.neg", "lr.pos", "diag.ac", "diag.or"),
+                              labels = c("Sensitivity", "Specificity",
+                                         "Negative predictive value",
+                                         "Positive predictive value",
+                                         "Negative likelihood ratio",
+                                         "Positive likelihood ratio",
+                                         "Accuracy",
+                                         "Odds ratio"))) %>%
+  dplyr::select(Type, Statistic, everything (), - statistic)
+
+```
+
 
 # Save results
 
 ```{r}
-saveRDS(mod, "mod.RDS")
+saveRDS(list (mod = mod, boot_list = boot_list), "mod_kl.RDS")
 ```
 
 # Plot results
 
+## Variable importance
 
 ```{r}
+vp_df <- data.frame (varimp(mod)) %>%
+  mutate (variable = str_remove(variable, "class, ")) %>%
+  filter (reduction != 0) %>%
+  arrange (desc (reduction)) %>%
+  slice (1:9) %>%
+  dplyr::select (-blearner)  %>%
+  mutate (reduction = round (reduction, 2),
+          selfreq = round (selfreq, 2))
+
+vp_df2 <- data.frame (varimp(mod)) %>%
+  mutate (variable = str_remove(variable, "class, ")) %>%
+  filter (reduction != 0) %>%
+  arrange (desc (reduction)) %>%
+  slice (10:nrow (.)) %>%
+  summarise (reduction = sum (reduction),
+             selfreq = sum (selfreq)) 
+
+vp_df[10,] <- c(round (vp_df2$reduction, 2), "Others", round (vp_df2$selfreq, 2))
+
+vp_df$variable <- factor (vp_df$variable, levels = vp_df$variable)
+vp_df <- vp_df %>%
+  mutate (variable = fct_rev(variable),
+          selfreq = paste0(as.numeric (selfreq) *100, "%"))
+
+f1 <- ggplot (vp_df) +
+  geom_bar(aes (x = variable, y = reduction), stat = "identity") +
+  geom_text(aes (x = variable, y = reduction, label = selfreq), hjust=-0.25) + 
+  coord_flip() +
+  labs (x = "Variables",
+        y = "In-bag risk reduction") +
+  cowplot::theme_cowplot()
+
+```
+
+## Interpretable plots
+
+```{r}
+top4_vars <- as.character (vp_df$variable[1:4])
 
 # cumul. probability for median curve (mean curve is zero due to scaling)
 preds <- pred_for_all(which)
@@ -492,24 +567,22 @@ preds <- pred_for_all(which)
 preds_odds <- pred_for_all(which, type = "link")
 
 # plot for probabilities
-ggplot(preds, aes(x = cycle, y = value, color = class)) + 
+
+preds %>%
+  filter (feature %in% top4_vars) %>%
+  mutate (feature = factor (feature, levels = top4_vars),
+          class = factor (class, labels = c("KL0", "KL2", "KL3", "KL4"))) %>%
+  ggplot(aes(x = cycle, y = value, color = class)) + 
   geom_line() + facet_wrap(~ feature#, consider using scales = "free" 
                                     # -> progress better visible, but 
                                     #    small differences maybe not relevant
                            ) +  
-  theme_bw() + 
-  ylab("Probability for Class") + xlab("Cycle")
+  scale_color_manual(values = c("black", "blue", "darkgreen", "red")) + 
+  cowplot::theme_cowplot() + 
+  ylab("Probability for Class") + 
+  xlab("Stance phase (%)")
 
-# very similar for log-odds
-ggplot(preds_odds, aes(x = cycle, y = value, color = class)) + 
-  geom_line() + facet_wrap(~ feature) + theme_bw() + 
-  ylab("Log-odds for being in a Class vs. being Class 0") + xlab("Cycle")
 
-###############################################################################
-
-# the normal predictions
-pd <- predict(mod, type = "response")
-apply(pd,1,which.max)
 ```
 
 
