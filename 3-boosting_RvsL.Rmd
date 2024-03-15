@@ -62,9 +62,12 @@ test_df <- df %>%
   map_at(c(1:9), train_test_split_vec, test_id)
 
 
-train_df$cycle <-  test_df$cycle <- 1:101
+df$cycle <- train_df$cycle <-  test_df$cycle <- 1:101
 train_df$oa_side <- factor (ifelse (train_df$oa_side == "R", 1, 0))
 test_df$oa_side <- factor (ifelse (test_df$oa_side == "R", 1, 0))
+df$oa_side <- factor (ifelse (df$oa_side == "R", 1, 0))
+
+
 ```
 
 # Scaling
@@ -82,7 +85,8 @@ for (n in seq_along (fun_names)) {
 train_df[fun_names] <- train_df[fun_names] %>%
   map (scale, center = TRUE, scale = FALSE)
 
-
+df[fun_names] <- df[fun_names] %>%
+  map (scale, center = TRUE, scale = FALSE)
 ```
 
 
@@ -100,7 +104,7 @@ form <- as.formula( paste0(lhs, rhs) )
 
 mod <- FDboost(
   formula = form, 
-  data = train_df, 
+  data = df, 
   timeformula = NULL, 
   family = Binomial(), 
   # define the boosting specific parameters
@@ -109,7 +113,7 @@ mod <- FDboost(
   #         iteration in the next step via cross-validation
   # nu:     learning rate: 0.1 is a good default, which 
   #         works for most cases
-  control = boost_control(mstop = 5000, 
+  control = boost_control(mstop = 500, 
                           nu = 0.1)
 )
 
@@ -120,6 +124,7 @@ mod <- FDboost(
 set.seed(1)
 folds = cv(rep(1, length(unique(mod$id))), 
            type = "kfold", B = 10)
+
 cvr = cvrisk(mod, folds = folds)
 # plot the cross-validation search and 
 # the best stopping iteration
@@ -143,178 +148,64 @@ for(cf in coefs){
 
 ```
 
-## Internal validation
+### Validation
 
 ```{r}
-# the normal predictions
-p <- predict(mod, type = "class") %>% as.character %>% as.numeric()
-o <- train_df$oa_side %>% as.character %>% as.numeric()
+B = 1000
 
-tab <- table(p, o)
-a <- tab[2,2]
-b <- tab[2,1]
-c <- tab[1,2]
-d <- tab[1,1]
+set.seed(1)
+boot_folds = cv(rep(1, length(unique(mod$id))), 
+           type = "bootstrap", B = B)
 
-int_val <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)
-int_val
+
+
+boot_list <- cvrisk(mod, 
+                     folds = boot_folds, 
+                     fun = function(object) predict(object, 
+                                                    type = "response"))
+
+boot_list2 <- boot_list %>%
+  map(~ifelse (as.numeric (.x) > 0.5, 1, 0)) %>%
+  bind_cols()
+
+boot_list2$outcome <- as.numeric (df$oa_side) - 1
+boot_list2 <- boot_list2 %>%
+  dplyr::select(outcome, everything ())
+
+
+# Right vs Left
+o <- ifelse (boot_list2$outcome == 1, 1, 0) # 0 is L, 1 is R
+
+val_list <- vector("list", 200)
+
+for (n in 1:200) {
+  
+  p <- ifelse (boot_list2[, n + 1] == 1, 1, 0) %>% as.numeric
+  
+  tab <- table(p, o)
+  a <- tab[2,2]
+  b <- tab[2,1]
+  c <- tab[1,2]
+  d <- tab[1,1]
+
+ val_list[[n]] <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)$detail[,c(1,2)]
+  
+}
+
+
+
+val_df1 <- bind_rows(val_list, .id = "boot") %>%
+  filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
+                           "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
+  group_by(statistic) %>%
+  summarise (Est = mean (est),
+             LB = quantile (est, probs = 0.025),
+             UB = quantile (est, probs = 0.975)) %>%
+  mutate_if (is.numeric, round, 2)
+
 ```
-
-# External validation
-
-```{r}
-p <- predict(mod, newdata = test_df, type = "class") %>% as.character %>% as.numeric()
-o <- test_df$oa_side %>% as.character %>% as.numeric()
-
-tab <- table(p, o)
-a <- tab[2,2]
-b <- tab[2,1]
-c <- tab[1,2]
-d <- tab[1,1]
-
-ext_val <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)
-ext_val
-```
-
-
 # Save results
 
 ```{r}
-saveRDS(mod, "mod.RDS")
+saveRDS(list (mod = mod, boot_list = boot_list), "mod_laterality.RDS")
 ```
-
-# Plot results
-
-
-```{r}
-###############################################################################
-# function to create data for plots
-# 
-# usage 
-#   which_feature: gives the number of the selected feature
-#   aggregate_fun: takes a function to compute a "typical" curve, e.g.,
-#                  the a certain quantile in the population, per default
-#                  the mean curve (a theoretical person whose feature values 
-#                  are larger than 50% of all others); using mean doesnt work as 
-#                  features are zero mean scaled; another option would
-#   type: when "response", will compute probabilites, otherwise ("link")
-#         log-odds between all classes and the reference class
-#
-#   returns: returns a 101x4 (101x3 for log-odds) matrix describing the
-#            the cumulative change in probability (log-odds) when looking at
-#            the chosen feature across the cycle points 
-create_plotdata <- function(which_feature, 
-                            aggregate_fun = median,
-                            type = "response")
-{
-  
-  feature_name <- mod$baselearner[[which_feature]]$get_names()[1]
-  aggreg_data <- apply(df[[feature_name]], 2, aggregate_fun)
-  # create zero-padded data for cumulative plots
-  padded_data <- matrix(aggreg_data, nrow=1)[rep(1,101),]
-  padded_data[upper.tri(padded_data)] <- 0
-  # create probabilities / log-odds
-  newdata <- df
-  newdata[[feature_name]] <- I(padded_data)
-  pred <- predict(mod, newdata = newdata, 
-                  which = which_feature, type = type)
-  if(type != "response") pred <- matrix(pred, ncol = 3)
-  return(pred)
-  
-}
-
-# function using the above function, compute for all features, and
-# return the data in a ggplot-friendly format
-#   all_selected: all selected numbers (which)
-#   aggregate_fun: see above
-#   type: see above
-pred_for_all <- function(all_selected, aggregate_fun = median,
-                         type = "response")
-{
-  
-  which_feature_names <- sapply(all_selected, function(w) 
-    mod$baselearner[[w]]$get_names()[1])
-  pp <- lapply(all_selected, function(w) 
-    create_plotdata(which_feature = w, aggregate_fun = aggregate_fun,
-                    type = type))
-  
-  names(pp) <- which_feature_names
-  names_colums <- levels(df$kl_severity) 
-  if(type != "response") names_colums <- names_colums[-1]
-    
-  ret_df <- do.call("rbind", 
-                    lapply(1:length(all_selected), 
-                           function(i) data.frame(
-                             value = c(pp[[i]]),
-                             cycle = rep(1:101, length(names_colums)),
-                             class = rep(names_colums, each = 101),
-                             feature = which_feature_names[i])))
-  
-  return(ret_df)
-  
-}
-
-# cumul. probability for median curve (mean curve is zero due to scaling)
-preds <- pred_for_all(which)
-# log-odds 
-preds_odds <- pred_for_all(which, type = "link")
-
-# plot for probabilities
-ggplot(preds, aes(x = cycle, y = value, color = class)) + 
-  geom_line() + facet_wrap(~ feature#, consider using scales = "free" 
-                                    # -> progress better visible, but 
-                                    #    small differences maybe not relevant
-                           ) +  
-  theme_bw() + 
-  ylab("Probability for Class") + xlab("Cycle")
-
-# very similar for log-odds
-ggplot(preds_odds, aes(x = cycle, y = value, color = class)) + 
-  geom_line() + facet_wrap(~ feature) + theme_bw() + 
-  ylab("Log-odds for being in a Class vs. being Class 0") + xlab("Cycle")
-
-###############################################################################
-
-# the normal predictions
-pd <- predict(mod, type = "response")
-apply(pd,1,which.max)
-```
-
-# Results of performance
-
-Ref: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4975285/#:~:text=Likelihood%20ratio%20is%20a%20very,a%20specific%20patient%20(3).
-
-```{r}
-
-# the normal predictions
-pd <- predict(mod, type = "response")
-apply(pd,1,which.max)
-
-p <- factor (apply(pd,1,which.max), ordered = T)
-o <- factor (as.numeric (df$kl_severity), ordered = T)
-
-test_res <- ml_test(p, o, output.as.table = FALSE)
-keep_var <- c("accuracy", 
-              "balanced.accuracy",
-              "DOR",
-              "L",
-              "lamda",
-              "NPV",
-              "precision",
-              "recall",
-              "specificity")
-test_res <- test_res[keep_var]
-
-names(test_res) <- c("accuracy", 
-                      "balanced.accuracy",
-                      "DOR",
-                      "LH+",
-                      "LH-",
-                      "NPV",
-                      "PPV",
-                      "sensitivity",
-                      "specificity")
-
-pROC::multiclass.roc(o, p)
-```
-
