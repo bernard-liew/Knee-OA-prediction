@@ -192,9 +192,9 @@ boot_list2 <- boot_list2 %>%
 # KL0 vs all
 o <- ifelse (boot_list2$outcome == 1, 0, 1) # 0 is healthy, 1 is OA
 
-val_list <- vector("list", 200)
+val_list <- vector("list", B)
 
-for (n in 1:200) {
+for (n in 1:B) {
   
   p <- ifelse (boot_list2[, n + 1] == 1, 0, 1) %>% as.numeric
   
@@ -223,9 +223,9 @@ val_df1 <- bind_rows(val_list, .id = "boot") %>%
 # KL2 vs all
 o <- ifelse (boot_list2$outcome == 2, 1, 0) # 2 is KL2
 
-val_list <- vector("list", 200)
+val_list <- vector("list", B)
 
-for (n in 1:200) {
+for (n in 1:B) {
   
   p <- ifelse (boot_list2[, n + 1] == 2, 1, 0) %>% as.numeric
   
@@ -254,9 +254,9 @@ val_df2 <- bind_rows(val_list, .id = "boot") %>%
 # KL3 vs all
 o <- ifelse (boot_list2$outcome == 3, 1, 0) # 3 is KL3
 
-val_list <- vector("list", 200)
+val_list <- vector("list", B)
 
-for (n in 1:200) {
+for (n in 1:B) {
   
   p <- ifelse (boot_list2[, n + 1] == 3, 1, 0) %>% as.numeric
   
@@ -285,9 +285,9 @@ val_df3 <- bind_rows(val_list, .id = "boot") %>%
 # KL4 vs all
 o <- ifelse (boot_list2$outcome == 4, 1, 0) # 4 is KL4
 
-val_list <- vector("list", 200)
+val_list <- vector("list", B)
 
-for (n in 1:200) {
+for (n in 1:B) {
   
   p <- ifelse (boot_list2[, n + 1] == 4, 1, 0) %>% as.numeric
   
@@ -389,6 +389,10 @@ f1 <- ggplot (vp_df) +
         y = "In-bag risk reduction") +
   cowplot::theme_cowplot()
 
+tiff ("../manuscript/fig1.tiff", units = "in", height = 5, width = 7, res = 100)
+  f1
+dev.off()
+
 ```
 
 ## Interpretable plots
@@ -403,7 +407,7 @@ preds_odds <- pred_for_all(which, type = "link")
 
 # plot for probabilities
 
-preds %>%
+p1 <- preds %>%
   filter (feature %in% top4_vars) %>%
   mutate (feature = factor (feature, levels = top4_vars),
           class = factor (class, labels = c("KL0", "KL2", "KL3", "KL4"))) %>%
@@ -417,7 +421,14 @@ preds %>%
   ylab("Probability for Class") + 
   xlab("Stance phase (%)")
 
+tiff ("../manuscript/fig2.tiff", units = "in", height = 5, width = 9, res = 100)
+  p1
+dev.off()
 
 ```
 
+
+```{r}
+source("https://raw.githubusercontent.com/achekroud/nomogrammer/master/nomogrammer.r")
+```
 

@@ -176,9 +176,9 @@ boot_list2 <- boot_list2 %>%
 # Right vs Left
 o <- ifelse (boot_list2$outcome == 1, 1, 0) # 0 is L, 1 is R
 
-val_list <- vector("list", 200)
+val_list <- vector("list", B)
 
-for (n in 1:200) {
+for (n in 1:B) {
   
   p <- ifelse (boot_list2[, n + 1] == 1, 1, 0) %>% as.numeric
   
@@ -209,3 +209,71 @@ val_df1 <- bind_rows(val_list, .id = "boot") %>%
 ```{r}
 saveRDS(list (mod = mod, boot_list = boot_list), "mod_laterality.RDS")
 ```
+
+
+```{r}
+mod_laterality <- readRDS("mod_laterality.RDS")
+mod <- mod_laterality$mod
+boot_list <- mod_laterality$boot_list
+```
+
+
+# Plot results
+
+## Variable importance
+
+```{r}
+vp_df <- data.frame (varimp(mod)) %>%
+  filter (reduction != 0) %>%
+  arrange (desc (reduction)) 
+
+vp_df$variable <- factor (vp_df$variable, levels = vp_df$variable)
+vp_df <- vp_df %>%
+  mutate (variable = fct_rev(variable),
+          selfreq = paste0(as.numeric (selfreq) *100, "%"))
+
+f2 <- ggplot (vp_df) +
+  geom_bar(aes (x = variable, y = reduction), stat = "identity") +
+  geom_text(aes (x = variable, y = reduction, label = selfreq), hjust=-0.25) + 
+  coord_flip() +
+  labs (x = "Variables",
+        y = "In-bag risk reduction") +
+  cowplot::theme_cowplot()
+
+tiff ("../manuscript/fig3.tiff", units = "in", height = 5, width = 7, res = 100)
+  f2
+dev.off()
+
+```
+
+## Interpretable plots
+
+```{r}
+
+# cumul. probability for median curve (mean curve is zero due to scaling)
+preds <- pred_for_all(which)
+
+# plot for probabilities
+
+p1 <- preds %>%
+  filter (feature %in% top4_vars) %>%
+  mutate (feature = factor (feature, levels = top4_vars),
+          class = factor (class, labels = c("KL0", "KL2", "KL3", "KL4"))) %>%
+  ggplot(aes(x = cycle, y = value, color = class)) + 
+  geom_line() + facet_wrap(~ feature#, consider using scales = "free" 
+                                    # -> progress better visible, but 
+                                    #    small differences maybe not relevant
+                           ) +  
+  scale_color_manual(values = c("black", "blue", "darkgreen", "red")) + 
+  cowplot::theme_cowplot() + 
+  ylab("Probability for Class") + 
+  xlab("Stance phase (%)")
+
+tiff ("../manuscript/fig2.tiff", units = "in", height = 5, width = 9, res = 100)
+  p1
+dev.off()
+
+```
+
+
+
