@@ -76,13 +76,8 @@ test_df$group <- factor (ifelse (test_df$group == "HOA", 1, 0))
 ```{r}
 fun_names <- grep("_Z|X|Y", names (train_df), value = TRUE)
 
-for (n in seq_along (fun_names)) {
-  
-  scale_mean <- apply (train_df[[fun_names[n]]], 2, mean)
-  test_df[[fun_names[n]]] <- scale(test_df[[fun_names[n]]], center = scale_mean)
-  
-}
-
+test_df[fun_names] <- test_df[fun_names] %>%
+  map (scale, center = TRUE, scale = FALSE)
 train_df[fun_names] <- train_df[fun_names] %>%
   map (scale, center = TRUE, scale = FALSE)
 
