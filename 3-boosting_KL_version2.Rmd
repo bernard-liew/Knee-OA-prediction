@@ -24,6 +24,10 @@ df <- readRDS ("merged_dat.RDS")
 # Remove segment angles
 df <- df[!grepl("Head|Thorax|Pelvis|Foot|Elbows_Y|Elbows_Z", names (df))]
 
+# Keep only sagittal angles as PiG model bad for non-saggital
+df <- df[!grepl("_Y|_Z", names (df))]
+
+
 df$cycle <- NULL
 ```
 
@@ -76,7 +80,7 @@ df$cycle <- train_df$cycle <-  test_df$cycle <- 1:101
 # Scaling
 
 ```{r}
-fun_names <- grep("_Z|X|Y", names (train_df), value = TRUE)
+fun_names <- grep("_Z|X|Y", names (df), value = TRUE)
 
 test_df[fun_names] <- test_df[fun_names] %>% 
   map (scale, center = TRUE, scale = FALSE)
@@ -127,7 +131,7 @@ mod <- FDboost(
   #         iteration in the next step via cross-validation
   # nu:     learning rate: 0.1 is a good default, which 
   #         works for most cases
-  control = boost_control(mstop = 500, 
+  control = boost_control(mstop = 1000, 
                           nu = 0.1)
 )
 
@@ -225,7 +229,7 @@ for (n in 1:B) {
   
   p <- ifelse (boot_list2[, n + 1] == 2, 1, 0) %>% as.numeric
   
-  tab <- table(p, o)
+  tab <- table(p, o, useNA = "always") # some iterations have complete prediction 0
   a <- tab[2,2]
   b <- tab[2,1]
   c <- tab[1,2]
@@ -241,9 +245,9 @@ val_df2 <- bind_rows(val_list, .id = "boot") %>%
   filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
                            "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
   group_by(statistic) %>%
-  summarise (Est = mean (est),
-             LB = quantile (est, probs = 0.025),
-             UB = quantile (est, probs = 0.975)) %>%
+  summarise (Est = mean (est, na.rm = TRUE),
+             LB = quantile (est, probs = 0.025, na.rm = TRUE),
+             UB = quantile (est, probs = 0.975, na.rm = TRUE)) %>%
   mutate_if (is.numeric, round, 2)
 
 
@@ -426,5 +430,10 @@ dev.off()
 
 ```{r}
 source("https://raw.githubusercontent.com/achekroud/nomogrammer/master/nomogrammer.r")
+
+
+nomogrammer(Prevalence = 0.35,
+            Plr = 5,
+            Nlr = 0.37)
 ```
 

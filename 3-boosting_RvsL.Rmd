@@ -29,6 +29,9 @@ df <- df %>%
 # Remove segment angles
 df <- df[!grepl("Head|Thorax|Pelvis|Foot|Elbows_Y|Elbows_Z", names (df))]
 
+# Keep only sagittal angles as PiG model bad for non-saggital
+df <- df[!grepl("_Y|_Z", names (df))]
+
 df$cycle <- NULL
 ```
 
@@ -73,7 +76,7 @@ df$oa_side <- factor (ifelse (df$oa_side == "R", 1, 0))
 # Scaling
 
 ```{r}
-fun_names <- grep("_Z|X|Y", names (train_df), value = TRUE)
+fun_names <- grep("_Z|X|Y", names (df), value = TRUE)
 
 for (n in seq_along (fun_names)) {
   
