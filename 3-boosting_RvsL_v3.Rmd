@@ -1,0 +1,290 @@
+---
+title: "1-preparation"
+output: html_document
+date: "`r Sys.Date()`"
+editor_options: 
+  chunk_output_type: console
+---
+# Load package
+```{r}
+library (tidyverse)
+library (FDboost)
+library (epiR)
+library (mltest)
+library (pROC)
+library (dcurves)
+
+source("common_functions.R")
+```
+# Import files
+
+```{r}
+df <- readRDS ("merged_dat.RDS")
+grps <- df$group
+
+df <- df %>%
+  map_if(is.matrix, ~.x[grps== "HOA",]) %>%
+  map_at(c(1:10), ~.x[grps == "HOA"])
+
+# Remove segment angles
+df <- df[!grepl("Head|Thorax|Pelvis|Foot|Elbows_Y|Elbows_Z", names (df))]
+
+# Keep only sagittal angles as PiG model bad for non-saggital
+df <- df[!grepl("_Y|_Z", names (df))] %>%
+  map_at(vars(starts_with("_X")), as.matrix)
+
+df$cycle <- NULL
+```
+
+# Tidy data
+
+```{r}
+oa_side <- df$oa_side
+
+df_Loa <- df %>%
+  map_if(is.matrix, ~.x[oa_side == "L",]) %>%
+  map_at(c(1:9), ~.x[oa_side == "L"]) 
+
+# names(df_Loa) <- ifelse (grepl("L_", names(df_Loa)),
+#                          str_replace(names(df_Loa), "L_", "Ipsi_"),
+#                          str_replace(names(df_Loa), "R_", "Contr_")
+# )
+  
+
+df_Roa <- df %>%
+  map_at(c(1:9), ~.x[oa_side == "R"]) %>%
+  map_if(is.matrix, ~.x[oa_side == "R",]) 
+
+# names(df_Roa) <- ifelse (grepl("R_", names(df_Roa)),
+#                          str_replace(names(df_Roa), "R_", "Ipsi_"),
+#                          str_replace(names(df_Roa), "L_", "Contr_")
+# )
+  
+df_side <- list(oa_side = c(rep ("Ipsi", length (df_Roa$oa_side)), rep ("Contr", length (df_Loa$oa_side))),
+                # Ipsilateral to OA
+                Ipsi_Ankles_X = rbind(df_Roa$R_Ankles_X, df_Loa$L_Ankles_X),
+                Ipsi_Knees_X = rbind(df_Roa$R_Knees_X, df_Loa$L_Knees_X),
+                Ipsi_Hips_X = rbind(df_Roa$R_Hips_X, df_Loa$L_Hips_X),
+                Ipsi_Spines_X = rbind(df_Roa$R_Spines_X, df_Loa$L_Spines_X),
+                Ipsi_Necks_X = rbind(df_Roa$R_Necks_X, df_Loa$L_Necks_X),
+                Ipsi_Shoulders_X = rbind(df_Roa$R_Shoulders_X, df_Loa$L_Shoulders_X),
+                Ipsi_Elbows_X = rbind(df_Roa$R_Elbows_X, df_Loa$L_Elbows_X),
+                Ipsi_Wrists_X = rbind(df_Roa$R_Wrists_X, df_Loa$L_Wrists_X),
+                # Contralteral to OA
+                Contr_Ankles_X = rbind(df_Roa$L_Ankles_X, df_Loa$R_Ankles_X),
+                Contr_Knees_X = rbind(df_Roa$L_Knees_X, df_Loa$R_Knees_X),
+                Contr_Hips_X = rbind(df_Roa$L_Hips_X, df_Loa$R_Hips_X),
+                Contr_Spines_X = rbind(df_Roa$L_Spines_X, df_Loa$R_Spines_X),
+                Contr_Necks_X = rbind(df_Roa$L_Necks_X, df_Loa$R_Necks_X),
+                Contr_Shoulders_X = rbind(df_Roa$L_Shoulders_X, df_Loa$R_Shoulders_X),
+                Contr_Elbows_X = rbind(df_Roa$L_Elbows_X, df_Loa$R_Elbows_X),
+                Contr_Wrists_X = rbind(df_Roa$L_Wrists_X, df_Loa$R_Wrists_X))
+
+df <- df_side
+```
+
+
+# Create train test split
+
+```{r}
+
+df$cycle  <- 1:101
+df$oa_side <- factor (ifelse (df$oa_side == "Ipsi", 1, 0))
+
+
+```
+
+# Scaling
+
+```{r}
+fun_names <- grep("_Z|X|Y", names (df), value = TRUE)
+
+df[fun_names] <- df[fun_names] %>%
+  map (scale, center = TRUE, scale = FALSE)
+```
+
+
+
+# Model
+
+```{r}
+lhs <- "oa_side ~ "
+
+rhs1 <- paste0("bsignal(", fun_names, 
+                   ", s = cycle, differences = 1)")
+rhs <- paste(rhs1, collapse = " + ")
+
+form <- as.formula( paste0(lhs, rhs) )
+
+mod <- FDboost(
+  formula = form, 
+  data = df, 
+  timeformula = NULL, 
+  family = Binomial(), 
+  # define the boosting specific parameters
+  # mstop:  set to a large number, such as 1000.
+  #         We will choose the optimal stoppting
+  #         iteration in the next step via cross-validation
+  # nu:     learning rate: 0.1 is a good default, which 
+  #         works for most cases
+  control = boost_control(mstop = 100, 
+                          nu = 0.1)
+)
+
+
+# through all mstop iterations, whether we should have
+# stopped early as the algorithm might already have
+# overfitted
+set.seed(1)
+folds = cv(rep(1, length(unique(mod$id))), 
+           type = "kfold", B = 10)
+
+cvr = cvrisk(mod, folds = folds)
+# plot the cross-validation search and 
+# the best stopping iteration
+plot(cvr)
+# redefine the model and set it to the best stopping
+# iteration (which is done inplace): 
+(best_iteration = mstop(cvr))
+mod[best_iteration]
+# plot the important predictors
+plot(mboost::varimp(mod))
+# plot the estimated effects of the model
+# hot fix:
+which <- intersect(1:length(mod$baselearner),
+                   c(0, selected(mod)))
+coefs <- coef(mod, which=which)[[2]]
+for(cf in coefs){
+  matplot(cf$x, cf$value, type="l", main = 
+            gsub("bsignal\\((.*)\\) %.*", "\\1", cf$main),
+          xlab = cf$xlab, ylab = "Partial effect")
+}
+
+```
+
+### Validation
+
+```{r}
+B = 1000
+
+set.seed(1)
+boot_folds = cv(rep(1, length(unique(mod$id))), 
+           type = "bootstrap", B = B)
+
+
+
+boot_list <- cvrisk(mod, 
+                     folds = boot_folds, 
+                     fun = function(object) predict(object, 
+                                                    type = "response"))
+
+boot_list2 <- boot_list %>%
+  map(~ifelse (as.numeric (.x) > 0.5, 1, 0)) %>%
+  bind_cols()
+
+boot_list2$outcome <- as.numeric (df$oa_side) - 1
+boot_list2 <- boot_list2 %>%
+  dplyr::select(outcome, everything ())
+
+
+# Right vs Left
+o <- ifelse (boot_list2$outcome == 1, 1, 0) # 0 is L, 1 is R
+
+val_list <- vector("list", B)
+
+for (n in 1:B) {
+  
+  p <- ifelse (boot_list2[, n + 1] == 1, 1, 0) %>% as.numeric
+  
+  tab <- table(p, o, useNA = "always")
+  a <- tab[2,2]
+  b <- tab[2,1]
+  c <- tab[1,2]
+  d <- tab[1,1]
+
+ val_list[[n]] <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)$detail[,c(1,2)]
+  
+}
+
+
+
+val_df1 <- bind_rows(val_list, .id = "boot") %>%
+  filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
+                           "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
+  mutate (est = ifelse (is.infinite(est), NA, est)) %>%
+  group_by(statistic) %>%
+  summarise (Est = mean (est, na.rm = TRUE),
+             LB = quantile (est, probs = 0.025, na.rm = TRUE),
+             UB = quantile (est, probs = 0.975, na.rm = TRUE)) %>%
+  mutate_if (is.numeric, round, 2)
+
+```
+# Save results
+
+```{r}
+saveRDS(list (mod = mod, boot_list = boot_list), "mod_laterality.RDS")
+```
+
+
+```{r}
+mod_laterality <- readRDS("mod_laterality.RDS")
+mod <- mod_laterality$mod
+boot_list <- mod_laterality$boot_list
+```
+
+
+# Plot results
+
+## Variable importance
+
+```{r}
+vp_df <- data.frame (varimp(mod)) %>%
+  filter (reduction != 0) %>%
+  arrange (desc (reduction)) 
+
+vp_df$variable <- factor (vp_df$variable, levels = vp_df$variable)
+vp_df <- vp_df %>%
+  mutate (variable = fct_rev(variable),
+          selfreq = paste0(as.numeric (selfreq) *100, "%"))
+
+f2 <- ggplot (vp_df) +
+  geom_bar(aes (x = variable, y = reduction), stat = "identity") +
+  geom_text(aes (x = variable, y = reduction, label = selfreq), hjust=-0.25) + 
+  coord_flip() +
+  labs (x = "Variables",
+        y = "In-bag risk reduction") +
+  cowplot::theme_cowplot()
+
+tiff ("../manuscript/fig3.tiff", units = "in", height = 5, width = 7, res = 100)
+  f2
+dev.off()
+
+```
+
+## Interpretable plots
+
+```{r}
+fun_var_names <- str_remove_all (names(coefs), ".*\\(|\\)")
+which 
+
+p <- make_interpret_plots(mod = mod, 
+                          plot = TRUE,
+                          cuml = "Cumulative",
+                          fun_var_name = fun_var_names,
+                          which = which,
+                          data = df,
+                          eachTimePoint_logit = FALSE)
+
+plot_grid(plotlist = p, 
+          nrow = 3, 
+          ncol = 2,
+          labels = "auto")
+
+tiff ("../manuscript/fig2.tiff", units = "in", height = 5, width = 9, res = 100)
+  p1
+dev.off()
+
+```
+
+
+

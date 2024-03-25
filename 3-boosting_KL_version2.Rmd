@@ -31,6 +31,53 @@ df <- df[!grepl("_Y|_Z", names (df))]
 df$cycle <- NULL
 ```
 
+# Tidy data
+
+```{r}
+oa_side <- df$oa_side
+
+df_Loa <- df %>%
+  map_if(is.matrix, ~.x[oa_side == "L",]) %>%
+  map_at(c(1:9), ~.x[oa_side == "L"]) 
+
+# names(df_Loa) <- ifelse (grepl("L_", names(df_Loa)),
+#                          str_replace(names(df_Loa), "L_", "Ipsi_"),
+#                          str_replace(names(df_Loa), "R_", "Contr_")
+# )
+  
+
+df_Roa <- df %>%
+  map_at(c(1:9), ~.x[oa_side == "R"]) %>%
+  map_if(is.matrix, ~.x[oa_side == "R",]) 
+
+# names(df_Roa) <- ifelse (grepl("R_", names(df_Roa)),
+#                          str_replace(names(df_Roa), "R_", "Ipsi_"),
+#                          str_replace(names(df_Roa), "L_", "Contr_")
+# )
+  
+df_side <- list(oa_side = c(rep ("Ipsi", length (df_Roa$oa_side)), rep ("Contr", length (df_Loa$oa_side))),
+                # Ipsilateral to OA
+                Ipsi_Ankles_X = rbind(df_Roa$R_Ankles_X, df_Loa$L_Ankles_X),
+                Ipsi_Knees_X = rbind(df_Roa$R_Knees_X, df_Loa$L_Knees_X),
+                Ipsi_Hips_X = rbind(df_Roa$R_Hips_X, df_Loa$L_Hips_X),
+                Ipsi_Spines_X = rbind(df_Roa$R_Spines_X, df_Loa$L_Spines_X),
+                Ipsi_Necks_X = rbind(df_Roa$R_Necks_X, df_Loa$L_Necks_X),
+                Ipsi_Shoulders_X = rbind(df_Roa$R_Shoulders_X, df_Loa$L_Shoulders_X),
+                Ipsi_Elbows_X = rbind(df_Roa$R_Elbows_X, df_Loa$L_Elbows_X),
+                Ipsi_Wrists_X = rbind(df_Roa$R_Wrists_X, df_Loa$L_Wrists_X),
+                # Contralteral to OA
+                Contr_Ankles_X = rbind(df_Roa$L_Ankles_X, df_Loa$R_Ankles_X),
+                Contr_Knees_X = rbind(df_Roa$L_Knees_X, df_Loa$R_Knees_X),
+                Contr_Hips_X = rbind(df_Roa$L_Hips_X, df_Loa$R_Hips_X),
+                Contr_Spines_X = rbind(df_Roa$L_Spines_X, df_Loa$R_Spines_X),
+                Contr_Necks_X = rbind(df_Roa$L_Necks_X, df_Loa$R_Necks_X),
+                Contr_Shoulders_X = rbind(df_Roa$L_Shoulders_X, df_Loa$R_Shoulders_X),
+                Contr_Elbows_X = rbind(df_Roa$L_Elbows_X, df_Loa$R_Elbows_X),
+                Contr_Wrists_X = rbind(df_Roa$L_Wrists_X, df_Loa$R_Wrists_X))
+
+df <- df_side
+```
+
 # Create train test split
 
 ```{r}
@@ -213,6 +260,7 @@ for (n in 1:B) {
 val_df1 <- bind_rows(val_list, .id = "boot") %>%
   filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
                            "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
+  filter (!is.infinite(est)) %>%
   group_by(statistic) %>%
   summarise (Est = mean (est),
              LB = quantile (est, probs = 0.025),
@@ -244,6 +292,7 @@ for (n in 1:B) {
 val_df2 <- bind_rows(val_list, .id = "boot") %>%
   filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
                            "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
+  filter (!is.infinite(est)) %>%
   group_by(statistic) %>%
   summarise (Est = mean (est, na.rm = TRUE),
              LB = quantile (est, probs = 0.025, na.rm = TRUE),
@@ -275,6 +324,7 @@ for (n in 1:B) {
 val_df3 <- bind_rows(val_list, .id = "boot") %>%
   filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
                            "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
+  filter (!is.infinite(est)) %>%
   group_by(statistic) %>%
   summarise (Est = mean (est),
              LB = quantile (est, probs = 0.025),
@@ -306,6 +356,7 @@ for (n in 1:B) {
 val_df4 <- bind_rows(val_list, .id = "boot") %>%
   filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
                            "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
+  filter (!is.infinite(est)) %>%
   group_by(statistic) %>%
   summarise (Est = mean (est),
              LB = quantile (est, probs = 0.025),

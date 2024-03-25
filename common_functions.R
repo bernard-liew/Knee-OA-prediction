@@ -47,6 +47,7 @@ remove_cor = function(cor_mat, cutoff = 0.8)
 make_interpret_plots <- function(mod, plot = TRUE,
                                  cuml = c("For each time-point", "Cumulative"),
                                  fun_var_name,
+                                 which,
                                  data,
                                  eachTimePoint_logit = TRUE)
 {
@@ -79,21 +80,26 @@ make_interpret_plots <- function(mod, plot = TRUE,
       # make predictions
       type_link <- j == "For each time-point" & !eachTimePoint_logit
       pd = as.data.frame(
-        matrix(predict(mod, newdata = df_temp, which = i, type = if_else(type_link, "link", "response")),
+        matrix(predict(mod, newdata = df_temp, which = which [i],
+                       type = if_else(type_link, "link", "response")),
                ncol = ncol(df_temp[[1]]), byrow = FALSE))
-      pd$name = data$name
-      pd$group = data$group
+      pd$oa_side = data$oa_side
+      pd$id <- 1:length (data$oa_side)
 
-      pd %>% gather(key = "time", value = "probability", -name, -group) %>%
+      gg <- pd %>% pivot_longer(cols = -c(oa_side, id),
+                          names_to = "time",
+                          values_to = "probability") %>%
         mutate(time = as.numeric(gsub("V","",time))) %>%
-        ggplot(aes(x = time, y = probability, group = name, colour = group)) +
+        ggplot(aes(x = time, y = probability, group = id, colour = oa_side)) +
         geom_line() +
         ggtitle(paste(var, j, sep = ": ")) +
         scale_color_manual(values =c ("blue", "red"),
-                           labels = c("control", "neck_pain"))+
+                           labels = c("Left", "Right"))+
         ylab ("Cumulative probability") +
         xlab ("Walking stride (0-100%)") +
-        theme_bw()-> gg
+        labs (colour = "Side") +
+        cowplot::theme_cowplot()
+
       if(type_link) gg <- gg + ylab("log odds")
       if(plot) print(gg)
 

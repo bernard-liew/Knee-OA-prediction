@@ -195,7 +195,7 @@ df_plot_2 <- df_plot[-1] %>%
   separate (varz, c("side", "joint", "axis"), "_") %>%
   pivot_longer(cols = starts_with("t"),
                names_to = "cycle",
-               values_to = "angle")%>%
+               values_to = "angle") %>%
   mutate (cycle = str_remove(cycle, "t") %>% as.numeric)%>%
   mutate (group = factor (group, levels = c("HEA", "HOA"), labels = c("Healthy", "OA")),
           side = factor (side, levels = c("R", "L"), labels = c("Right", "Left"))) %>%

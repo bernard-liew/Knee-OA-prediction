@@ -35,6 +35,39 @@ df <- df[!grepl("_Y|_Z", names (df))]
 df$cycle <- NULL
 ```
 
+# Tidy data
+
+```{r}
+oa_side <- df$oa_side
+
+df_Loa <- df %>%
+  map_if(is.matrix, ~.x[oa_side == "L",]) %>%
+  map_at(c(1:9), ~.x[oa_side == "L"]) %>%
+  map_at(vars(starts_with("L")), as.matrix)
+
+df_Loa <- df_Loa[!grepl("R_", names (df_Loa))]
+names(df_Loa) <- str_remove(names(df_Loa), "L_")
+
+df_Roa <- df %>%
+  map_if(is.matrix, ~.x[oa_side == "R",]) %>%
+  map_at(c(1:9), ~.x[oa_side == "R"])%>%
+  map_at(vars(starts_with("L")), as.matrix)
+
+df_Roa <- df_Roa[!grepl("L_", names (df_Roa))]
+names(df_Roa) <- str_remove(names(df_Roa), "R_")
+
+df_side <- list(oa_side = c(df_Roa$oa_side, df_Loa$oa_side),
+                Ankles_X = rbind(df_Roa$Ankles_X, df_Loa$Ankles_X),
+                Knees_X = rbind(df_Roa$Knees_X, df_Loa$Knees_X),
+                Hips_X = rbind(df_Roa$Hips_X, df_Loa$Hips_X),
+                Spines_X = rbind(df_Roa$Spines_X, df_Loa$Spines_X),
+                Necks_X = rbind(df_Roa$Necks_X, df_Loa$Necks_X),
+                Shoulders_X = rbind(df_Roa$Shoulders_X, df_Loa$Shoulders_X),
+                Elbows_X = rbind(df_Roa$Elbows_X, df_Loa$Elbows_X),
+                Wrists_X = rbind(df_Roa$Wrists_X, df_Loa$Wrists_X))
+```
+
+
 # Create train test split
 
 ```{r}

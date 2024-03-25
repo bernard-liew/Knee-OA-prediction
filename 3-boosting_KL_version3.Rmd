@@ -1,0 +1,444 @@
+---
+title: "1-preparation"
+output: html_document
+date: "`r Sys.Date()`"
+editor_options: 
+  chunk_output_type: console
+---
+# Load package
+```{r}
+library (tidyverse)
+library (FDboost)
+library (epiR)
+library (mltest)
+library (pROC)
+library (dcurves)
+
+source("common_functions.R")
+```
+# Import files
+
+```{r}
+df <- readRDS ("merged_dat.RDS")
+
+# Remove segment angles
+df <- df[!grepl("Head|Thorax|Pelvis|Foot|Elbows_Y|Elbows_Z", names (df))]
+
+# Keep only sagittal angles as PiG model bad for non-saggital
+df <- df[!grepl("_Y|_Z", names (df))]
+
+
+df$cycle <- NULL
+```
+
+# Tidy data
+
+```{r}
+oa_side <- df$oa_side
+
+df_Hea <- df %>%
+  map_if(is.matrix, ~.x[oa_side == "N",]) %>%
+  map_at(c(1:9), ~.x[oa_side == "N"]) 
+
+
+df_Roa <- df %>%
+  map_at(c(1:9), ~.x[oa_side == "R"]) %>%
+  map_if(is.matrix, ~.x[oa_side == "R",]) 
+
+df_Loa <- df %>%
+  map_if(is.matrix, ~.x[oa_side == "L",]) %>%
+  map_at(c(1:9), ~.x[oa_side == "L"]) 
+
+
+df2 <- list(
+               # Ipsilateral to OA
+                Ipsi_Ankles_X = rbind(df_Hea$R_Ankles_X, df_Roa$R_Ankles_X, df_Loa$L_Ankles_X),
+                Ipsi_Knees_X = rbind(df_Hea$R_Knees_X, df_Roa$R_Knees_X, df_Loa$L_Knees_X),
+                Ipsi_Hips_X = rbind(df_Hea$R_Hips_X, df_Roa$R_Hips_X, df_Loa$L_Hips_X),
+                Ipsi_Spines_X = rbind(df_Hea$R_Spines_X, df_Roa$R_Spines_X, df_Loa$L_Spines_X),
+                Ipsi_Necks_X = rbind(df_Hea$R_Necks_X, df_Roa$R_Necks_X, df_Loa$L_Necks_X),
+                Ipsi_Shoulders_X = rbind(df_Hea$R_Shoulders_X, df_Roa$R_Shoulders_X, df_Loa$L_Shoulders_X),
+                Ipsi_Elbows_X = rbind(df_Hea$R_Elbows_X, df_Roa$R_Elbows_X, df_Loa$L_Elbows_X),
+                Ipsi_Wrists_X = rbind(df_Hea$R_Wrists_X, df_Roa$R_Wrists_X, df_Loa$L_Wrists_X),
+                # Contralteral to OA
+                Contr_Ankles_X = rbind(df_Hea$L_Ankles_X, df_Roa$L_Ankles_X, df_Loa$R_Ankles_X),
+                Contr_Knees_X = rbind(df_Hea$L_Knees_X, df_Roa$L_Knees_X, df_Loa$R_Knees_X),
+                Contr_Hips_X = rbind(df_Hea$L_Hips_X, df_Roa$L_Hips_X, df_Loa$R_Hips_X),
+                Contr_Spines_X = rbind(df_Hea$L_Spines_X, df_Roa$L_Spines_X, df_Loa$R_Spines_X),
+                Contr_Necks_X = rbind(df_Hea$L_Necks_X, df_Roa$L_Necks_X, df_Loa$R_Necks_X),
+                Contr_Shoulders_X = rbind(df_Hea$L_Shoulders_X, df_Roa$L_Shoulders_X, df_Loa$R_Shoulders_X),
+                Contr_Elbows_X = rbind(df_Hea$L_Elbows_X, df_Roa$L_Elbows_X, df_Loa$R_Elbows_X),
+                Contr_Wrists_X = rbind(df_Hea$L_Wrists_X, df_Roa$L_Wrists_X, df_Loa$R_Wrists_X))
+
+df2$kl_severity <- factor (c(df_Hea$kl_severity, df_Roa$kl_severity, df_Loa$kl_severity))
+```
+
+# Create train test split
+
+```{r}
+df <- df2
+
+df$class <- 
+  factor(levels(df$kl_severity)[-nlevels(df$kl_severity)])
+
+df$cycle <- 1:101
+
+```
+
+
+# Scaling
+
+```{r}
+fun_names <- grep("_Z|X|Y", names (df), value = TRUE)
+
+df[fun_names] <- df[fun_names] %>%
+  map (scale, center = TRUE, scale = FALSE)
+
+```
+
+
+# Model
+
+## Formula
+
+```{r}
+lhs <- "kl_severity ~ "
+
+rhs1 <- paste0("bsignal(", fun_names, 
+                   ", s = cycle, differences = 1)")
+rhs2 <- paste0(rhs1, "%O% bols(class, df = 3, contrasts.arg = 'contr.dummy')")
+rhs <- paste(rhs2, collapse = " + ")
+
+form <- as.formula( paste0(lhs, rhs) )
+
+```
+
+## Based on bootstrapping all data
+
+```{r}
+mod <- readRDS("mod_kl.RDS")$mod
+boot_list <- readRDS("mod_kl.RDS")$boot_list
+```
+
+
+```{r}
+
+mod <- FDboost(
+  formula = form, 
+  data = df, 
+  timeformula = NULL, 
+  family = Multinomial(), 
+  # define the boosting specific parameters
+  # mstop:  set to a large number, such as 1000.
+  #         We will choose the optimal stoppting
+  #         iteration in the next step via cross-validation
+  # nu:     learning rate: 0.1 is a good default, which 
+  #         works for most cases
+  control = boost_control(mstop = 1000, 
+                          nu = 0.1)
+)
+
+
+# through all mstop iterations, whether we should have
+# stopped early as the algorithm might already have
+# overfitted
+set.seed(1)
+folds = cv(rep(1, length(unique(mod$id))), 
+           type = "kfold", B = 10)
+cvr = cvrisk(mod, folds = folds)
+# plot the cross-validation search and 
+# the best stopping iteration
+plot(cvr)
+# redefine the model and set it to the best stopping
+# iteration (which is done inplace): 
+(best_iteration = mstop(cvr))
+mod[best_iteration]
+# plot the important predictors
+plot(mboost::varimp(mod))
+# plot the estimated effects of the model
+# hot fix:
+which <- intersect(1:length(mod$baselearner),
+                   c(0, selected(mod)))
+coefs <- coef(mod, which=which)[[2]]
+for(cf in coefs){
+  matplot(cf$x, cf$value, type="l", main = 
+            gsub("bsignal\\((.*)\\) %.*", "\\1", cf$main),
+          xlab = cf$xlab, ylab = "Partial effect")
+}
+
+```
+
+### Validation
+
+```{r}
+B = 1000
+
+set.seed(1)
+boot_folds = cv(rep(1, length(unique(mod$id))), 
+           type = "bootstrap", B = B)
+
+
+boot_list <- cvrisk(mod, 
+                     folds = boot_folds, 
+                     fun = function(object) predict(object, 
+                                                    type = "response"))
+
+boot_list2 <- boot_list %>%
+  map(~apply(.x,1,which.max)) %>%
+  bind_cols()
+
+boot_list2$outcome <- as.numeric (df$kl_severity)
+boot_list2 <- boot_list2 %>%
+  dplyr::select(outcome, everything ())
+
+
+# KL0 vs all
+o <- ifelse (boot_list2$outcome == 1, 0, 1) # 0 is healthy, 1 is OA
+
+val_list <- vector("list", B)
+
+for (n in 1:B) {
+  
+  p <- ifelse (boot_list2[, n + 1] == 1, 0, 1) %>% as.numeric
+  
+  tab <- table(p, o)
+  a <- tab[2,2]
+  b <- tab[2,1]
+  c <- tab[1,2]
+  d <- tab[1,1]
+
+ val_list[[n]] <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)$detail[,c(1,2)]
+  
+}
+
+
+
+val_df1 <- bind_rows(val_list, .id = "boot") %>%
+  filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
+                           "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
+  filter (!is.infinite(est)) %>%
+  group_by(statistic) %>%
+  summarise (Est = mean (est),
+             LB = quantile (est, probs = 0.025),
+             UB = quantile (est, probs = 0.975)) %>%
+  mutate_if (is.numeric, round, 2)
+
+
+# KL2 vs all
+o <- ifelse (boot_list2$outcome == 2, 1, 0) # 2 is KL2
+
+val_list <- vector("list", B)
+
+for (n in 1:B) {
+  
+  p <- ifelse (boot_list2[, n + 1] == 2, 1, 0) %>% as.numeric
+  
+  tab <- table(p, o, useNA = "always") # some iterations have complete prediction 0
+  a <- tab[2,2]
+  b <- tab[2,1]
+  c <- tab[1,2]
+  d <- tab[1,1]
+
+ val_list[[n]] <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)$detail[,c(1,2)]
+  
+}
+
+
+
+val_df2 <- bind_rows(val_list, .id = "boot") %>%
+  filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
+                           "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
+  filter (!is.infinite(est)) %>%
+  group_by(statistic) %>%
+  summarise (Est = mean (est, na.rm = TRUE),
+             LB = quantile (est, probs = 0.025, na.rm = TRUE),
+             UB = quantile (est, probs = 0.975, na.rm = TRUE)) %>%
+  mutate_if (is.numeric, round, 2)
+
+
+# KL3 vs all
+o <- ifelse (boot_list2$outcome == 3, 1, 0) # 3 is KL3
+
+val_list <- vector("list", B)
+
+for (n in 1:B) {
+  
+  p <- ifelse (boot_list2[, n + 1] == 3, 1, 0) %>% as.numeric
+  
+  tab <- table(p, o)
+  a <- tab[2,2]
+  b <- tab[2,1]
+  c <- tab[1,2]
+  d <- tab[1,1]
+
+ val_list[[n]] <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)$detail[,c(1,2)]
+  
+}
+
+
+
+val_df3 <- bind_rows(val_list, .id = "boot") %>%
+  filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
+                           "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
+  filter (!is.infinite(est)) %>%
+  group_by(statistic) %>%
+  summarise (Est = mean (est),
+             LB = quantile (est, probs = 0.025),
+             UB = quantile (est, probs = 0.975)) %>%
+  mutate_if (is.numeric, round, 2)
+
+
+# KL4 vs all
+o <- ifelse (boot_list2$outcome == 4, 1, 0) # 4 is KL4
+
+val_list <- vector("list", B)
+
+for (n in 1:B) {
+  
+  p <- ifelse (boot_list2[, n + 1] == 4, 1, 0) %>% as.numeric
+  
+  tab <- table(p, o)
+  a <- tab[2,2]
+  b <- tab[2,1]
+  c <- tab[1,2]
+  d <- tab[1,1]
+
+ val_list[[n]] <- epi.tests(c(a, b, c, d), method = "exact", digits = 2, conf.level = 0.95)$detail[,c(1,2)]
+  
+}
+
+
+
+val_df4 <- bind_rows(val_list, .id = "boot") %>%
+  filter (statistic %in% c("se", "sp", "pv.pos", "pv.neg", 
+                           "lr.pos", "lr.neg", "diag.ac", "diag.or")) %>%
+  filter (!is.infinite(est)) %>%
+  group_by(statistic) %>%
+  summarise (Est = mean (est),
+             LB = quantile (est, probs = 0.025),
+             UB = quantile (est, probs = 0.975)) %>%
+  mutate_if (is.numeric, round, 2)
+```
+
+### Plot the prediction results
+
+```{r}
+val_df <- bind_rows(val_df1, val_df2, val_df3, val_df4) %>%
+  mutate (Type = rep(c("KL0 vs all", "KL2 vs all", "KL3 vs all", "KL4 vs all"), each = 8) %>%
+            factor (levels = c("KL0 vs all", "KL2 vs all", "KL3 vs all", "KL4 vs all"))) %>%
+  mutate (Statistic = factor (statistic, 
+                              levels = c("se", "sp", "pv.neg", "pv.pos",
+                                         "lr.neg", "lr.pos", "diag.ac", "diag.or"),
+                              labels = c("Sensitivity", "Specificity",
+                                         "Negative predictive value",
+                                         "Positive predictive value",
+                                         "Negative likelihood ratio",
+                                         "Positive likelihood ratio",
+                                         "Accuracy",
+                                         "Odds ratio"))) %>%
+  dplyr::select(Type, Statistic, everything (), - statistic)
+
+val_df <- val_df %>%
+  mutate (value = glue::glue("{Est} ({LB}, {UB})")) %>%
+  dplyr::select(Type, Statistic, value) %>%
+  pivot_wider(values_from = value,
+              names_from = Type)
+```
+
+
+# Save results
+
+```{r}
+saveRDS(list (val_df = val_df, mod = mod, boot_list = boot_list), "mod_kl.RDS")
+```
+
+```{r}
+mod_kl <- readRDS("mod_kl.RDS")
+mod <- mod_kl$mod
+boot_list <- mod_kl$boot_list
+val_df <- mod_kl$val_df
+```
+
+
+# Plot results
+
+## Variable importance
+
+```{r}
+vp_df <- data.frame (varimp(mod)) %>%
+  mutate (variable = str_remove(variable, "class, ")) %>%
+  filter (reduction != 0) %>%
+  arrange (desc (reduction)) %>%
+  #slice (1:9) %>%
+  dplyr::select (-blearner)  %>%
+  mutate (reduction = round (reduction, 3),
+          selfreq = round (selfreq, 2)) %>%
+  mutate (variable = str_remove(variable, "s_X")) %>%
+  mutate (variable = factor (variable, levels = variable))  %>%
+  mutate (variable = fct_rev(variable),
+          selfreq = paste0(as.numeric (selfreq) *100, "%"))
+
+f1 <- ggplot (vp_df) +
+  geom_bar(aes (x = variable, y = reduction), stat = "identity") +
+  geom_text(aes (x = variable, y = reduction, label = selfreq), hjust=-0.25) + 
+  coord_flip() +
+  labs (x = "Predictors",
+        y = "In-bag risk reduction") +
+  cowplot::theme_cowplot()
+
+tiff ("../manuscript/fig1.tiff", units = "in", height = 5, width = 7, res = 100)
+  f1
+dev.off()
+
+```
+
+## Interpretable plots
+
+```{r}
+selected_vars <- paste0(vp_df$variable, "s_X")
+
+top4_vars <- as.character (selected_vars[1:4])
+
+# cumul. probability for median curve (mean curve is zero due to scaling)
+preds <- pred_for_all(which)
+
+# plot for probabilities
+
+p1 <- preds %>%
+  filter (feature %in% top4_vars) %>%
+  mutate (feature = str_remove(feature, "s_X")) %>%
+  mutate (feature = factor (feature, levels = str_remove(top4_vars, "s_X")),
+          class = factor (class, labels = c("KL0", "KL2", "KL3", "KL4"))) %>%
+  ggplot(aes(x = cycle, y = value, color = class)) + 
+  geom_line(linewidth = 1) + 
+  facet_wrap(~ feature, scales = "free") +  
+  scale_color_manual(values = c("black", "blue", "darkgreen", "red")) + 
+  cowplot::theme_cowplot() + 
+  ylab("Probability for Class") + 
+  xlab("Stride (%)") +
+  labs (color = "Class")
+
+tiff ("../manuscript/fig2.tiff", units = "in", height = 5, width = 9, res = 100)
+  p1
+dev.off()
+
+```
+
+
+```{r}
+source("https://raw.githubusercontent.com/achekroud/nomogrammer/master/nomogrammer.r")
+
+
+p <- nomogrammer(Prevalence = 0.35,
+            Plr = 10,
+            Nlr = 0.5,
+            Detail = TRUE) +
+  scale_color_manual(values = c("blue", "red"))
+
+
+tiff ("../manuscript/fig3.tiff", units = "in", height = 5, width = 9, res = 100)
+  plot (p)
+dev.off()
+
+```
+
