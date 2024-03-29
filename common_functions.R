@@ -132,13 +132,15 @@ make_interpret_plots <- function(mod, plot = TRUE,
 #   returns: returns a 101x4 (101x3 for log-odds) matrix describing the
 #            the cumulative change in probability (log-odds) when looking at
 #            the chosen feature across the cycle points
-create_plotdata <- function(which_feature,
+create_plotdata <- function(df,
+                            which_feature,
                             aggregate_fun = median,
-                            type = "response")
+                            type = "response",
+                            filter_data = function(x) x)
 {
 
   feature_name <- mod$baselearner[[which_feature]]$get_names()[1]
-  aggreg_data <- apply(df[[feature_name]], 2, aggregate_fun)
+  aggreg_data <- apply(filter_data(df[[feature_name]]), 2, aggregate_fun)
   # create zero-padded data for cumulative plots
   padded_data <- matrix(aggreg_data, nrow=1)[rep(1,101),]
   padded_data[upper.tri(padded_data)] <- 0
@@ -157,15 +159,15 @@ create_plotdata <- function(which_feature,
 #   all_selected: all selected numbers (which)
 #   aggregate_fun: see above
 #   type: see above
-pred_for_all <- function(all_selected, aggregate_fun = median,
-                         type = "response")
+pred_for_all <- function(mod, df, all_selected, aggregate_fun = median,
+                         type = "response", filter_data = function(x) x)
 {
 
   which_feature_names <- sapply(all_selected, function(w)
     mod$baselearner[[w]]$get_names()[1])
   pp <- lapply(all_selected, function(w)
-    create_plotdata(which_feature = w, aggregate_fun = aggregate_fun,
-                    type = type))
+    create_plotdata(df, which_feature = w, aggregate_fun = aggregate_fun,
+                    type = type, filter_data = filter_data))
 
   names(pp) <- which_feature_names
   names_colums <- levels(df$kl_severity)

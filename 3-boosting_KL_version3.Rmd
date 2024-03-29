@@ -400,7 +400,7 @@ selected_vars <- paste0(vp_df$variable, "s_X")
 top4_vars <- as.character (selected_vars[1:4])
 
 # cumul. probability for median curve (mean curve is zero due to scaling)
-preds <- pred_for_all(which)
+preds <- pred_for_all(mod, df, which)
 
 # plot for probabilities
 
@@ -422,6 +422,75 @@ tiff ("../manuscript/fig2.tiff", units = "in", height = 5, width = 9, res = 100)
   p1
 dev.off()
 
+
+# cumul. probability for average KL0 curve -> looks similar but not exactly the
+# same as median curves
+preds <- pred_for_all(mod, df, which, 
+                      filter_data = function(x) x[df$kl_severity==0,])
+
+# plot for probabilities
+p1a <- preds %>%
+  filter (feature %in% top4_vars) %>%
+  mutate (feature = str_remove(feature, "s_X")) %>%
+  mutate (feature = factor (feature, levels = str_remove(top4_vars, "s_X")),
+          class = factor (class, labels = c("KL0", "KL2", "KL3", "KL4"))) %>%
+  ggplot(aes(x = cycle, y = value, color = class)) + 
+  geom_line(linewidth = 1) + 
+  facet_wrap(~ feature, scales = "free") +  
+  scale_color_manual(values = c("black", "blue", "darkgreen", "red")) + 
+  cowplot::theme_cowplot() + 
+  ylab("Probability for Class") + 
+  xlab("Stride (%)") +
+  labs (color = "Class")
+
+# same now for KL2/3/4
+preds <- pred_for_all(mod, df, which, 
+                      filter_data = function(x) x[df$kl_severity==2,])
+p2a <- preds %>%
+  filter (feature %in% top4_vars) %>%
+  mutate (feature = str_remove(feature, "s_X")) %>%
+  mutate (feature = factor (feature, levels = str_remove(top4_vars, "s_X")),
+          class = factor (class, labels = c("KL0", "KL2", "KL3", "KL4"))) %>%
+  ggplot(aes(x = cycle, y = value, color = class)) + 
+  geom_line(linewidth = 1) + 
+  facet_wrap(~ feature, scales = "free") +  
+  scale_color_manual(values = c("black", "blue", "darkgreen", "red")) + 
+  cowplot::theme_cowplot() + 
+  ylab("Probability for Class") + 
+  xlab("Stride (%)") +
+  labs (color = "Class")
+
+preds <- pred_for_all(mod, df, which, 
+                      filter_data = function(x) x[df$kl_severity==3,])
+p3a <- preds %>%
+  filter (feature %in% top4_vars) %>%
+  mutate (feature = str_remove(feature, "s_X")) %>%
+  mutate (feature = factor (feature, levels = str_remove(top4_vars, "s_X")),
+          class = factor (class, labels = c("KL0", "KL2", "KL3", "KL4"))) %>%
+  ggplot(aes(x = cycle, y = value, color = class)) + 
+  geom_line(linewidth = 1) + 
+  facet_wrap(~ feature, scales = "free") +  
+  scale_color_manual(values = c("black", "blue", "darkgreen", "red")) + 
+  cowplot::theme_cowplot() + 
+  ylab("Probability for Class") + 
+  xlab("Stride (%)") +
+  labs (color = "Class")
+
+preds <- pred_for_all(mod, df, which, 
+                      filter_data = function(x) x[df$kl_severity==4,])
+p4a <- preds %>%
+  filter (feature %in% top4_vars) %>%
+  mutate (feature = str_remove(feature, "s_X")) %>%
+  mutate (feature = factor (feature, levels = str_remove(top4_vars, "s_X")),
+          class = factor (class, labels = c("KL0", "KL2", "KL3", "KL4"))) %>%
+  ggplot(aes(x = cycle, y = value, color = class)) + 
+  geom_line(linewidth = 1) + 
+  facet_wrap(~ feature, scales = "free") +  
+  scale_color_manual(values = c("black", "blue", "darkgreen", "red")) + 
+  cowplot::theme_cowplot() + 
+  ylab("Probability for Class") + 
+  xlab("Stride (%)") +
+  labs (color = "Class")
 ```
 
 
