@@ -425,7 +425,7 @@ dev.off()
 
 # cumul. probability for average KL0 curve -> looks similar but not exactly the
 # same as median curves
-preds <- pred_for_all(mod, df, which, 
+preds <- pred_for_all(mod, df, which, aggregate_fun = mean,
                       filter_data = function(x) x[df$kl_severity==0,])
 
 # plot for probabilities
@@ -444,7 +444,7 @@ p1a <- preds %>%
   labs (color = "Class")
 
 # same now for KL2/3/4
-preds <- pred_for_all(mod, df, which, 
+preds <- pred_for_all(mod, df, which, aggregate_fun = mean,
                       filter_data = function(x) x[df$kl_severity==2,])
 p2a <- preds %>%
   filter (feature %in% top4_vars) %>%
@@ -460,7 +460,7 @@ p2a <- preds %>%
   xlab("Stride (%)") +
   labs (color = "Class")
 
-preds <- pred_for_all(mod, df, which, 
+preds <- pred_for_all(mod, df, which, aggregate_fun = mean,
                       filter_data = function(x) x[df$kl_severity==3,])
 p3a <- preds %>%
   filter (feature %in% top4_vars) %>%
@@ -476,7 +476,7 @@ p3a <- preds %>%
   xlab("Stride (%)") +
   labs (color = "Class")
 
-preds <- pred_for_all(mod, df, which, 
+preds <- pred_for_all(mod, df, which, aggregate_fun = mean,
                       filter_data = function(x) x[df$kl_severity==4,])
 p4a <- preds %>%
   filter (feature %in% top4_vars) %>%
