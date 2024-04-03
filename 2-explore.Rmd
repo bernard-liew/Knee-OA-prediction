@@ -98,7 +98,7 @@ f5 <- bmi_df %>%
   geom_point(aes(x = group, y = Mean),  color = "black", size = 2) +
   geom_errorbar(aes(x = group, ymin = Mean - Sd, ymax = Mean + Sd), width = 0) +
   labs(x = "Group",
-       y = paste0("Body mass index (kg/m", supsc("2"), ")")) +
+       y = paste0("BMI(kg/m", supsc("2"), ")")) +
   theme_cowplot()
 
 plot_grid(f1, f2, f3, f4, f5,

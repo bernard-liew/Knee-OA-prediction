@@ -394,34 +394,12 @@ dev.off()
 
 ## Interpretable plots
 
+### Based on a single best predictor
+
 ```{r}
 selected_vars <- paste0(vp_df$variable, "s_X")
 
-top4_vars <- as.character (selected_vars[1:4])
-
-# cumul. probability for median curve (mean curve is zero due to scaling)
-preds <- pred_for_all(mod, df, which)
-
-# plot for probabilities
-
-p1 <- preds %>%
-  filter (feature %in% top4_vars) %>%
-  mutate (feature = str_remove(feature, "s_X")) %>%
-  mutate (feature = factor (feature, levels = str_remove(top4_vars, "s_X")),
-          class = factor (class, labels = c("KL0", "KL2", "KL3", "KL4"))) %>%
-  ggplot(aes(x = cycle, y = value, color = class)) + 
-  geom_line(linewidth = 1) + 
-  facet_wrap(~ feature, scales = "free") +  
-  scale_color_manual(values = c("black", "blue", "darkgreen", "red")) + 
-  cowplot::theme_cowplot() + 
-  ylab("Probability for Class") + 
-  xlab("Stride (%)") +
-  labs (color = "Class")
-
-tiff ("../manuscript/fig2.tiff", units = "in", height = 5, width = 9, res = 100)
-  p1
-dev.off()
-
+top_vars <- as.character (selected_vars[1])
 
 # cumul. probability for average KL0 curve -> looks similar but not exactly the
 # same as median curves
@@ -430,13 +408,13 @@ preds <- pred_for_all(mod, df, which, aggregate_fun = mean,
 
 # plot for probabilities
 p1a <- preds %>%
-  filter (feature %in% top4_vars) %>%
+  filter (feature %in% top_vars) %>%
   mutate (feature = str_remove(feature, "s_X")) %>%
   mutate (feature = factor (feature, levels = str_remove(top4_vars, "s_X")),
           class = factor (class, labels = c("KL0", "KL2", "KL3", "KL4"))) %>%
   ggplot(aes(x = cycle, y = value, color = class)) + 
   geom_line(linewidth = 1) + 
-  facet_wrap(~ feature, scales = "free") +  
+  geom_hline(yintercept = 0.25, linetype = 2) + 
   scale_color_manual(values = c("black", "blue", "darkgreen", "red")) + 
   cowplot::theme_cowplot() + 
   ylab("Probability for Class") + 
@@ -447,13 +425,13 @@ p1a <- preds %>%
 preds <- pred_for_all(mod, df, which, aggregate_fun = mean,
                       filter_data = function(x) x[df$kl_severity==2,])
 p2a <- preds %>%
-  filter (feature %in% top4_vars) %>%
+  filter (feature %in% top_vars) %>%
   mutate (feature = str_remove(feature, "s_X")) %>%
   mutate (feature = factor (feature, levels = str_remove(top4_vars, "s_X")),
           class = factor (class, labels = c("KL0", "KL2", "KL3", "KL4"))) %>%
   ggplot(aes(x = cycle, y = value, color = class)) + 
   geom_line(linewidth = 1) + 
-  facet_wrap(~ feature, scales = "free") +  
+  geom_hline(yintercept = 0.25, linetype = 2) + 
   scale_color_manual(values = c("black", "blue", "darkgreen", "red")) + 
   cowplot::theme_cowplot() + 
   ylab("Probability for Class") + 
@@ -463,13 +441,13 @@ p2a <- preds %>%
 preds <- pred_for_all(mod, df, which, aggregate_fun = mean,
                       filter_data = function(x) x[df$kl_severity==3,])
 p3a <- preds %>%
-  filter (feature %in% top4_vars) %>%
+  filter (feature %in% top_vars) %>%
   mutate (feature = str_remove(feature, "s_X")) %>%
   mutate (feature = factor (feature, levels = str_remove(top4_vars, "s_X")),
           class = factor (class, labels = c("KL0", "KL2", "KL3", "KL4"))) %>%
   ggplot(aes(x = cycle, y = value, color = class)) + 
   geom_line(linewidth = 1) + 
-  facet_wrap(~ feature, scales = "free") +  
+  geom_hline(yintercept = 0.25, linetype = 2) + 
   scale_color_manual(values = c("black", "blue", "darkgreen", "red")) + 
   cowplot::theme_cowplot() + 
   ylab("Probability for Class") + 
@@ -479,20 +457,151 @@ p3a <- preds %>%
 preds <- pred_for_all(mod, df, which, aggregate_fun = mean,
                       filter_data = function(x) x[df$kl_severity==4,])
 p4a <- preds %>%
-  filter (feature %in% top4_vars) %>%
+  filter (feature %in% top_vars) %>%
   mutate (feature = str_remove(feature, "s_X")) %>%
   mutate (feature = factor (feature, levels = str_remove(top4_vars, "s_X")),
           class = factor (class, labels = c("KL0", "KL2", "KL3", "KL4"))) %>%
   ggplot(aes(x = cycle, y = value, color = class)) + 
   geom_line(linewidth = 1) + 
-  facet_wrap(~ feature, scales = "free") +  
+  geom_hline(yintercept = 0.25, linetype = 2) + 
   scale_color_manual(values = c("black", "blue", "darkgreen", "red")) + 
   cowplot::theme_cowplot() + 
   ylab("Probability for Class") + 
   xlab("Stride (%)") +
   labs (color = "Class")
+
+prow <- cowplot::plot_grid(
+  p1a + theme(legend.position="none"),
+  p2a + theme(legend.position="none"), 
+  p3a + theme(legend.position="none"),
+  p4a + theme(legend.position="none"),
+  align = 'vh',
+  labels = "auto",
+  nrow = 2, ncol = 2,
+  hjust = 0.1
+)
+
+# extract the legend from one of the plots
+legend <- cowplot::get_legend(
+  # create some space to the left of the legend
+  p1a + theme(legend.box.margin = margin(0, 0, 0, 12))
+)
+
+cowplot::plot_grid(prow, legend, rel_widths = c(3, .4))
+
+tiff ("../manuscript/fig5.tiff", units = "in", height = 5, width = 9, res = 100)
+  cowplot::plot_grid(prow, legend, rel_widths = c(3, .4))
+dev.off()
+
+
 ```
 
+### Based on all predictors
+
+```{r}
+selected_vars <- paste0(vp_df$variable, "s_X")
+
+
+# cumul. probability for average KL0 curve -> looks similar but not exactly the
+# same as median curves
+preds <- pred_for_all(mod, df, which, aggregate_fun = mean,
+                      filter_data = function(x) x[df$kl_severity==0,])
+
+# plot for probabilities
+p1a <- preds %>%
+  #filter (feature %in% top_vars) %>%
+  mutate (feature = str_remove(feature, "s_X")) %>%
+  mutate (feature = factor (feature, levels = varz_lvl ),
+          class = factor (class, labels = c("KL0", "KL2", "KL3", "KL4"))) %>%
+  ggplot(aes(x = cycle, y = value, color = class)) + 
+  geom_line(linewidth = 1) + 
+  facet_wrap(~ feature, scales = "free", ncol = 3) +  
+  geom_hline(yintercept = 0.25, linetype = 2) + 
+  scale_color_manual(values = c("black", "blue", "darkgreen", "red")) + 
+  cowplot::theme_cowplot() + 
+  ylab("Probability for Class") + 
+  xlab("Stride (%)") +
+  labs (color = "Class")
+
+# same now for KL2/3/4
+preds <- pred_for_all(mod, df, which, aggregate_fun = mean,
+                      filter_data = function(x) x[df$kl_severity==2,])
+p2a <- preds %>%
+  #filter (feature %in% top_vars) %>%
+  mutate (feature = str_remove(feature, "s_X")) %>%
+  mutate (feature = factor (feature, levels = varz_lvl ),
+          class = factor (class, labels = c("KL0", "KL2", "KL3", "KL4"))) %>%
+  ggplot(aes(x = cycle, y = value, color = class)) + 
+  geom_line(linewidth = 1) + 
+  facet_wrap(~ feature, scales = "free", ncol = 3) +  
+  geom_hline(yintercept = 0.25, linetype = 2) + 
+  scale_color_manual(values = c("black", "blue", "darkgreen", "red")) + 
+  cowplot::theme_cowplot() + 
+  ylab("Probability for Class") + 
+  xlab("Stride (%)") +
+  labs (color = "Class")
+
+preds <- pred_for_all(mod, df, which, aggregate_fun = mean,
+                      filter_data = function(x) x[df$kl_severity==3,])
+p3a <- preds %>%
+  #filter (feature %in% top_vars) %>%
+  mutate (feature = str_remove(feature, "s_X")) %>%
+  mutate (feature = factor (feature, levels = varz_lvl ),
+          class = factor (class, labels = c("KL0", "KL2", "KL3", "KL4"))) %>%
+  ggplot(aes(x = cycle, y = value, color = class)) + 
+  geom_line(linewidth = 1) + 
+  facet_wrap(~ feature, scales = "free", ncol = 3) +  
+  geom_hline(yintercept = 0.25, linetype = 2) + 
+  scale_color_manual(values = c("black", "blue", "darkgreen", "red")) + 
+  cowplot::theme_cowplot() + 
+  ylab("Probability for Class") + 
+  xlab("Stride (%)") +
+  labs (color = "Class")
+
+preds <- pred_for_all(mod, df, which, aggregate_fun = mean,
+                      filter_data = function(x) x[df$kl_severity==4,])
+p4a <- preds %>%
+  #filter (feature %in% top_vars) %>%
+  mutate (feature = str_remove(feature, "s_X")) %>%
+  mutate (feature = factor (feature, levels = varz_lvl ),
+          class = factor (class, labels = c("KL0", "KL2", "KL3", "KL4"))) %>%
+  ggplot(aes(x = cycle, y = value, color = class)) + 
+  geom_line(linewidth = 1) + 
+  facet_wrap(~ feature, scales = "free", ncol = 3) +  
+  geom_hline(yintercept = 0.25, linetype = 2) + 
+  scale_color_manual(values = c("black", "blue", "darkgreen", "red")) + 
+  cowplot::theme_cowplot() + 
+  ylab("Probability for Class") + 
+  xlab("Stride (%)") +
+  labs (color = "Class")
+
+
+
+prow <- cowplot::plot_grid(
+  p1a + theme(legend.position="none"),
+  p2a + theme(legend.position="none"), 
+  p3a + theme(legend.position="none"),
+  p4a + theme(legend.position="none"),
+  align = 'vh',
+  labels = "auto",
+  nrow = 2, ncol = 2,
+  hjust = 0.1
+)
+
+# extract the legend from one of the plots
+legend <- cowplot::get_legend(
+  # create some space to the left of the legend
+  p1a + theme(legend.box.margin = margin(0, 0, 0, 12))
+)
+
+cowplot::plot_grid(prow, legend, rel_widths = c(3, .4))
+
+tiff ("../manuscript/figSM1.tiff", units = "in", height = 5, width = 9, res = 100)
+  cowplot::plot_grid(prow, legend, rel_widths = c(3, .4))
+dev.off()
+
+
+```
 
 ```{r}
 source("https://raw.githubusercontent.com/achekroud/nomogrammer/master/nomogrammer.r")
@@ -508,6 +617,40 @@ p <- nomogrammer(Prevalence = 0.35,
 tiff ("../manuscript/fig3.tiff", units = "in", height = 5, width = 9, res = 100)
   plot (p)
 dev.off()
+
+```
+
+# Mean plots
+
+```{r}
+varz_lvl <- c("Ipsi_Ankle", "Ipsi_Knee", "Ipsi_Hip", "Ipsi_Spine",     
+              "Ipsi_Neck", "Ipsi_Shoulder", "Ipsi_Elbow", "Ipsi_Wrist",
+              "Contr_Ankle", "Contr_Knee", "Contr_Hip", "Contr_Spine",     
+              "Contr_Neck", "Contr_Shoulder", "Contr_Elbow", "Contr_Wrist")
+
+f1 <- df2
+f1$kl_severity <- NULL
+f1 <- f1 %>%
+  map (~as.data.frame(.x)) %>%
+  bind_rows (.id = "varz") %>%
+  mutate (kl_severity = rep (df$kl_severity, 16)) %>%
+  group_by(kl_severity, varz) %>%
+  summarise_at(vars(t0:t100), mean) %>%
+  pivot_longer(cols = starts_with("t"),
+               names_to = "cycle",
+               values_to = "angle")  %>%
+  mutate (cycle = parse_number(cycle)) %>%
+  mutate (varz = str_remove(varz, "s_X"),
+          varz = factor (varz, levels = varz_lvl))
+
+f1_plot <- ggplot (f1) +
+  geom_line (aes (x = cycle, y = angle, color = kl_severity), linewidth = 1) +
+  facet_wrap(~ varz, scales = "free", nrow = 4, ncol = 4) +
+  scale_color_manual(values = c("black", "blue", "darkgreen", "red")) +
+  labs (y = "Angles (°)",
+        x = "Stride (%)",
+        color = "KL scale") +
+  cowplot::theme_cowplot()
 
 ```
 
